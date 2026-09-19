@@ -1,0 +1,29 @@
+{{{#!comment
+Section to be inserted into Help/MapView, after "== Downloaded area ==#Downloadedarea" and before "== Troubleshooting ==".
+The anchor #Grid is referenced by the help button of View > Show grid.
+A screenshot of a rotated 1 km grid over a city (yellow lines, hard light) should be added as Help/MapView:Grid.png.
+}}}
+
+== Grid ==#Grid
+
+[[Image(Help/MapView:Grid.png,500,link=)]]
+
+A configurable grid can be drawn over the map view, above all layers, as a visual aid: for example to see at a glance which parts of a large area have already been edited, or to lay out a regular street pattern. The grid is purely visual. There is **no snapping** to grid lines; drawing and editing behave exactly as without the grid.
+
+ Show and hide:: [wikitr:/Help/Menu/View View] > **Show grid**. The action can also be placed on the [wikitr:/Help/Preferences/Toolbar toolbar].
+ Settings:: [wikitr:/Help/Preferences/Grid Preferences > Grid]: grid type (projected coordinates in metres, or latitude/longitude in degrees), east and north spacing, rotation, origin, line width, blend mode and the minimum distance of the lines on screen. The line colors are in [wikitr:/Help/Preferences/Colors Preferences > Colors] ("grid east lines", "grid north lines").
+
+The default is a grid of 1000 m × 1000 m in projected coordinates, drawn in yellow with the "hard light" blend mode so that it stays visible over light and dark map features. Spacings of a projected grid are true distances in metres, the same as measured by the [wikitr:/Help/Action/Parallel parallel way tool] and the status bar. When zooming out, the spacing is automatically multiplied by 10 (100, 1000, ...) as soon as the lines would come closer than a configurable number of pixels, so the grid stays readable while remaining aligned to the configured one.
+
+=== Placing the grid from the map ===
+
+Two entries of the map's right click menu (available while an imagery layer is present, together with the layer's own entries such as "Show tile info") position the grid without typing coordinates:
+
+ Set grid origin here:: Moves the grid so that a north-south and an east-west line cross at the point where you right clicked, and switches the grid on. Right click exactly on a street intersection to align a street grid. For a projected grid the origin is also the point at which the metric spacing is exact, so choose a point inside the area you work in.
+ Align grid rotation to selection:: Rotates the grid so that its lines run parallel to the current selection: either a single way (direction from its first to its last node) or exactly two nodes. Select a long, straight stretch of one of the streets first. The grid is switched to projected coordinates (a latitude/longitude grid cannot be rotated) and switched on. The entry is disabled while the selection does not define a direction.
+
+Typical workflow for an existing regular street grid: select a straight main street, right click > **Align grid rotation to selection**; then right click on an intersection > **Set grid origin here**; finally set the block size as spacing in [wikitr:/Help/Preferences/Grid Preferences > Grid].
+
+=== Tile borders of imagery layers ===
+
+Independent of the grid, imagery layers can draw a thin border around each of their tiles: right click on the map (or on the layer in the [wikitr:/Help/Dialog/LayerList layer list]) and check **Show tile borders**. This helps to tell which tile is being looked at, for example together with **Show tile info**. The setting is stored per layer (also in [wikitr:/Help/Action/SessionSave sessions]); its color is "imagery tile border" in [wikitr:/Help/Preferences/Colors Preferences > Colors].

@@ -1,0 +1,95 @@
+[[TranslatedPages]]
+[[PageOutline(2-4,Table of content)]]
+
+= Preferences > Grid =
+[[JOSMImage(preferences/grid,link=)]]
+
+{{{#!comment
+Screenshot of the Grid preferences tab to be added:
+[[Image(PreferencesGrid.png,link=,right,margin-left=15,50%)]]
+}}}
+
+Settings of the grid that can be drawn over the [wikitr:/Help/MapView map view]. The grid is a visual aid for laying out and checking mapping, for example to see which districts of a city have been edited or to plan a regular street pattern. It is drawn above all layers and there is **no snapping** to it: drawing and editing are not affected by the grid.
+
+The grid is switched on and off with [wikitr:/Help/Menu/View View] > **Show grid**; the checkbox at the top of this tab does the same.
+
+== Grid type ==
+
+ Projected coordinates:: Straight lines of constant east and north coordinate of the current [wikitr:/Help/Preferences/Map map projection]. This grid can be rotated and has a spacing given in metres. This is the default and the right choice for regular street patterns or a "one kilometre" work grid.
+ Latitude/longitude:: Lines of constant latitude (parallels) and constant longitude (meridians) with a spacing in degrees. In most projections these lines are curves; they are drawn accordingly. The grid cannot be rotated.
+
+== Spacing ==
+
+ East spacing / Longitude spacing:: Distance between the lines running north-south, i.e. between neighbouring east coordinates or meridians.
+ North spacing / Latitude spacing:: Distance between the lines running east-west, i.e. between neighbouring north coordinates or parallels.
+
+For a projected grid the spacing is a **true distance in metres**, as measured by the [wikitr:/Help/Action/Parallel parallel way tool] and shown in the status bar, and not in raw projection units (in the default Mercator projection those are metres only at the equator). The conversion is done at the grid origin, so the grid is exact there and drifts very slightly with distance from the origin (about 0.3 % per 50 km north or south at 20° latitude). Place the origin in the area you work in, see below.
+
+For a latitude/longitude grid the spacing is in degrees; decimal values like `0.25` are allowed.
+
+== Rotation (degrees) ==
+
+Rotation of a projected grid around its origin, counter clockwise, in degrees. Since a rectangular grid repeats every 90°, a rotation of 64° is the same grid as −26°. The rotation is ignored for a latitude/longitude grid.
+
+The rotation can also be taken from existing data: select a straight way (or exactly two nodes) that runs along the desired grid direction, right click on the map and choose **Align grid rotation to selection**, see [wikitr:/Help/MapView#Grid Map view > Grid].
+
+== Origin ==
+
+ Origin east / Origin longitude:: East coordinate resp. longitude of a point through which a north-south grid line passes.
+ Origin north / Origin latitude:: North coordinate resp. latitude of a point through which an east-west grid line passes.
+
+The origin fixes the position of the grid lines. The easiest way to set it is to right click on the map at a point where two grid lines should cross, for example a street intersection, and choose **Set grid origin here**; this fills in both values and switches the grid on. For a projected grid the origin is also the point where the metric spacing is exact.
+
+== Minimum line distance on screen (pixels) ==
+
+When zooming out, the lines of the configured grid would get closer and closer together. Below this distance (in pixels) the spacing is multiplied by 10, and by 100, 1000, ... if needed, until the lines are far enough apart. The coarser grid is always aligned to the configured one, so a 1 km grid becomes a 10 km grid whose lines are also lines of the 1 km grid. The default is 25 pixels.
+
+== Line width (pixels) ==
+
+Width of the grid lines. The default is 2.
+
+== Blend mode ==
+
+How the lines are combined with the map below them:
+
+ Normal:: Ordinary transparency, the line color is painted over the map.
+ Multiply:: Darkens the map by the line color; white is neutral.
+ Burn:: Darkens strongly and increases the contrast; white is neutral.
+ Hard light:: Line colors darker than mid grey darken the map (like multiply), lighter colors brighten it (like screen). A bright color such as yellow stays visible over both light and dark map features. This is the default.
+ Difference:: Absolute difference between line color and map; a colored line is visible on any background, black is invisible.
+ Divide:: Brightens the map; dark line colors give bright lines, white is neutral.
+
+== Colors ==
+
+The colors of the two line directions are set in the [wikitr:/Help/Preferences/Colors Colors] tab:
+
+ grid east lines:: Lines of constant east coordinate resp. meridians (the lines running north-south).
+ grid north lines:: Lines of constant north coordinate resp. parallels (the lines running east-west).
+
+Both default to yellow (`#FFFF00`). Using two different colors makes it easier to tell the directions apart on a rotated grid.
+
+== Preference keys ==
+
+||= Key =||= Default =||= Meaning =||
+|| `draw.grid.enabled` || `false` || grid shown ||
+|| `draw.grid.type` || `PROJECTED` || `PROJECTED` or `LATLON` ||
+|| `draw.grid.spacing-x` || `1000` || east resp. longitude spacing ||
+|| `draw.grid.spacing-y` || `1000` || north resp. latitude spacing ||
+|| `draw.grid.rotation` || `0` || rotation in degrees ||
+|| `draw.grid.origin-x` || `0` || origin east resp. longitude ||
+|| `draw.grid.origin-y` || `0` || origin north resp. latitude ||
+|| `draw.grid.min-pixel-spacing` || `25` || minimum line distance on screen ||
+|| `draw.grid.line-width` || `2` || line width in pixels ||
+|| `draw.grid.blend-mode` || `HARD_LIGHT` || `NORMAL`, `MULTIPLY`, `BURN`, `HARD_LIGHT`, `DIFFERENCE` or `DIVIDE` ||
+|| `color.grid east lines`, `color.grid north lines` || `#FFFF00` || line colors ||
+
+== See also ==
+
+ * [wikitr:/Help/MapView#Grid Map view > Grid]: showing the grid, setting origin and rotation from the map
+ * [wikitr:/Help/Action/Parallel Parallel way tool]: offsets in true metres, matching the grid spacing
+ * [wikitr:/Help/Preferences/Map Map Projection]
+
+----
+Back to [wikitr:/Help/Action/Preferences Preferences dialog] \\
+Back to [wikitr:/Help/Menu/Edit Edit Menu] \\
+Back to [wikitr:/Help Main Help]
