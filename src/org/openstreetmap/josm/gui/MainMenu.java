@@ -100,6 +100,7 @@ import org.openstreetmap.josm.actions.SelectNonBranchingWaySequencesAction;
 import org.openstreetmap.josm.actions.SelectSharedChildObjectsAction;
 import org.openstreetmap.josm.actions.SessionSaveAction;
 import org.openstreetmap.josm.actions.SessionSaveAsAction;
+import org.openstreetmap.josm.actions.ShowGridAction;
 import org.openstreetmap.josm.actions.ShowStatusReportAction;
 import org.openstreetmap.josm.actions.SimplifyWayAction;
 import org.openstreetmap.josm.actions.SplitWayAction;
@@ -256,6 +257,8 @@ public class MainMenu extends JMenuBar {
     public final TiledRenderToggleAction tiledRenderToggleAction = new TiledRenderToggleAction();
     /** View / Hatch area outside download */
     public final DrawBoundariesOfDownloadedDataAction drawBoundariesOfDownloadedDataAction = new DrawBoundariesOfDownloadedDataAction();
+    /** View / Show grid */
+    public final ShowGridAction showGridAction = new ShowGridAction();
     /** View / Advanced info */
     public final InfoAction info = new InfoAction();
     /** View / Advanced info (web) */
@@ -815,6 +818,8 @@ public class MainMenu extends JMenuBar {
         final JCheckBoxMenuItem hatchAreaOutsideDownloadMenuItem = drawBoundariesOfDownloadedDataAction.getCheckbox();
         viewMenu.add(hatchAreaOutsideDownloadMenuItem);
         ExpertToggleAction.addVisibilitySwitcher(hatchAreaOutsideDownloadMenuItem);
+        // -- grid toggle action
+        viewMenu.add(showGridAction.getCheckbox());
 
         viewMenu.add(new MapPaintMenu());
         viewMenu.addSeparator();
