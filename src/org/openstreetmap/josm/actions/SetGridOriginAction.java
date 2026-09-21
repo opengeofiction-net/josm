@@ -33,7 +33,7 @@ public class SetGridOriginAction extends JosmAction {
      * Constructs a new {@code SetGridOriginAction}.
      */
     public SetGridOriginAction() {
-        super(tr("Set origin to selection"), (String) null,
+        super(tr("Set origin to selection"), "gridorigin",
                 tr("Move the grid so that a grid line passes through the selected node, "
                         + "or through the centroid of the current selection, and show the grid."),
                 null, false);

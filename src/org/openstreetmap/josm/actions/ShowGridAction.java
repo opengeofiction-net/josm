@@ -8,6 +8,7 @@ import java.awt.event.ActionEvent;
 
 import org.openstreetmap.josm.gui.MainApplication;
 import org.openstreetmap.josm.gui.layer.MapGridPaintable;
+import org.openstreetmap.josm.tools.ImageProvider;
 
 /**
  * This action toggles the display of the grid over the map view.
@@ -21,6 +22,7 @@ public class ShowGridAction extends PreferenceToggleAction {
      */
     public ShowGridAction() {
         super(tr("Show"),
+                new ImageProvider("grid"),
                 tr("Enable/disable the grid drawn over the map. Its spacing and orientation are set in the display preferences."),
                 MapGridPaintable.ENABLED
         );

@@ -828,6 +828,7 @@ public class MainMenu extends JMenuBar {
         viewMenu.add(hatchAreaOutsideDownloadMenuItem);
         ExpertToggleAction.addVisibilitySwitcher(hatchAreaOutsideDownloadMenuItem);
         // -- Grid submenu
+        gridMenu.setIcon(ImageProvider.get("grid", ImageProvider.ImageSizes.MENU));
         gridMenu.add(showGridAction.getCheckbox());
         add(gridMenu, setGridOriginAction);
         add(gridMenu, alignGridRotationAction);
