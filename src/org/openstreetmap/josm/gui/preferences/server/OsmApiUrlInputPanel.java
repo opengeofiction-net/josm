@@ -125,7 +125,7 @@ public class OsmApiUrlInputPanel extends JPanel {
      */
     public void saveToPreferences() {
         String oldUrl = OsmApi.getOsmApi().getServerUrl();
-        String hmiUrl = getStrippedApiUrl();
+        String hmiUrl = getApiUrl();
         if (cbUseDefaultServerUrl.isSelected() || Config.getUrls().getDefaultOsmApiUrl().equals(hmiUrl)) {
             Config.getPref().put("osm-server.url", null);
         } else {
@@ -146,14 +146,14 @@ public class OsmApiUrlInputPanel extends JPanel {
     }
 
     /**
-     * Returns the entered API URL, stripped of leading and trailing white characters and of trailing '/'.
-     * @return the entered API URL, stripped of leading and trailing white characters and of trailing '/'.
-     *         May be an empty string if nothing has been entered. In this case, it means the user wants to
-     *         use {@link IUrls#getDefaultOsmApiUrl}.
+     * Returns the entered API URL, normalized with {@link OsmApi#normalizeApiUrl(String)}, that is stripped of
+     * leading and trailing white characters and of trailing '/'.
+     * @return the entered API URL. May be an empty string if nothing has been entered. In this case, it means
+     *         the user wants to use {@link IUrls#getDefaultOsmApiUrl}.
      * @see OsmApi#normalizeApiUrl(String)
-     * @since 6602
+     * @since xxx (renamed from {@code getStrippedApiUrl}, which existed since 6602)
      */
-    public final String getStrippedApiUrl() {
+    public final String getApiUrl() {
         return OsmApi.normalizeApiUrl(tfOsmServerUrl.getText());
     }
 
@@ -168,7 +168,7 @@ public class OsmApiUrlInputPanel extends JPanel {
 
         @Override
         public void actionPerformed(ActionEvent arg0) {
-            final String url = getStrippedApiUrl();
+            final String url = getApiUrl();
             final ApiUrlTestTask task = new ApiUrlTestTask(OsmApiUrlInputPanel.this, url);
             MainApplication.worker.submit(task);
             Runnable r = () -> {
@@ -191,7 +191,7 @@ public class OsmApiUrlInputPanel extends JPanel {
         }
 
         protected final void updateEnabledState() {
-            String url = getStrippedApiUrl();
+            String url = getApiUrl();
             boolean enabled = !url.isEmpty() && !url.equals(lastTestedUrl);
             if (enabled) {
                 lblValid.setIcon(null);
@@ -276,7 +276,7 @@ public class OsmApiUrlInputPanel extends JPanel {
 
     class ApiUrlPropagator extends FocusAdapter implements ActionListener {
         protected void propagate() {
-            propagate(getStrippedApiUrl());
+            propagate(getApiUrl());
         }
 
         protected void propagate(String url) {
