@@ -7,11 +7,10 @@ import java.awt.event.ActionEvent;
 import java.util.Collection;
 import java.util.Iterator;
 
-import javax.swing.AbstractAction;
-
 import org.openstreetmap.josm.data.coor.EastNorth;
 import org.openstreetmap.josm.data.osm.DataSet;
 import org.openstreetmap.josm.data.osm.Node;
+import org.openstreetmap.josm.data.osm.OsmPrimitive;
 import org.openstreetmap.josm.data.osm.Way;
 import org.openstreetmap.josm.gui.MainApplication;
 import org.openstreetmap.josm.gui.layer.MapGridPaintable;
@@ -22,21 +21,19 @@ import org.openstreetmap.josm.gui.layer.MapGridPaintable.GridType;
  * (the direction from its first to its last node) or exactly two nodes. Switches the grid to projected coordinates,
  * since a latitude/longitude grid cannot be rotated, and enables it.
  * @see MapGridPaintable
+ * @see SetGridOriginAction
  * @since xxx
  */
-public class AlignGridRotationAction extends AbstractAction {
-
-    private final EastNorth[] direction;
+public class AlignGridRotationAction extends JosmAction {
 
     /**
-     * Constructs a new {@code AlignGridRotationAction} for the current selection of the edit data set.
+     * Constructs a new {@code AlignGridRotationAction}.
      */
     public AlignGridRotationAction() {
-        super(tr("Align grid rotation to selection"));
-        putValue(SHORT_DESCRIPTION, tr("Rotate the grid so that its lines are parallel to the selected way "
-                + "(first to last node) or to the line between the two selected nodes. Switches to a projected grid."));
-        direction = getSelectedDirection(MainApplication.getLayerManager().getEditDataSet());
-        setEnabled(direction != null);
+        super(tr("Align grid rotation to selection"), (String) null,
+                tr("Rotate the grid so that its lines are parallel to the selected way "
+                        + "(first to last node) or to the line between the two selected nodes. Switches to a projected grid."),
+                null, false);
     }
 
     /**
@@ -87,7 +84,18 @@ public class AlignGridRotationAction extends AbstractAction {
     }
 
     @Override
+    protected void updateEnabledState() {
+        setEnabled(getSelectedDirection(getLayerManager().getEditDataSet()) != null);
+    }
+
+    @Override
+    protected void updateEnabledState(Collection<? extends OsmPrimitive> selection) {
+        updateEnabledState();
+    }
+
+    @Override
     public void actionPerformed(ActionEvent e) {
+        EastNorth[] direction = getSelectedDirection(getLayerManager().getEditDataSet());
         if (direction == null) {
             return;
         }

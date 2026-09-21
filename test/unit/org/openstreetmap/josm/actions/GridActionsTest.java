@@ -14,8 +14,9 @@ import org.openstreetmap.josm.data.coor.EastNorth;
 import org.openstreetmap.josm.data.coor.LatLon;
 import org.openstreetmap.josm.data.osm.DataSet;
 import org.openstreetmap.josm.data.osm.Node;
+import org.openstreetmap.josm.data.osm.Relation;
+import org.openstreetmap.josm.data.osm.RelationMember;
 import org.openstreetmap.josm.data.osm.Way;
-import org.openstreetmap.josm.data.projection.ProjectionRegistry;
 import org.openstreetmap.josm.gui.MainApplication;
 import org.openstreetmap.josm.gui.layer.MapGridPaintable;
 import org.openstreetmap.josm.gui.layer.MapGridPaintable.GridType;
@@ -39,22 +40,85 @@ class GridActionsTest {
     }
 
     /**
-     * The origin is stored in the coordinates of the grid type, and the grid gets enabled.
+     * The origin is the position of a single selected node, stored in the coordinates of the grid type, and the
+     * grid gets enabled. Without a selection the action is disabled.
      */
     @Test
-    void testSetOrigin() {
-        EastNorth en = ProjectionRegistry.getProjection().latlon2eastNorth(new LatLon(50, 10));
-        MapGridPaintable.TYPE.put(GridType.LATLON);
-        new SetGridOriginAction(en).actionPerformed(new ActionEvent(this, 0, ""));
-        assertEquals(10, MapGridPaintable.ORIGIN_X.get(), 1e-7);
-        assertEquals(50, MapGridPaintable.ORIGIN_Y.get(), 1e-7);
-        assertTrue(MapGridPaintable.ENABLED.get());
+    void testSetOriginSingleNode() {
+        DataSet ds = new DataSet();
+        OsmDataLayer layer = new OsmDataLayer(ds, "GridActionsTest", null);
+        MainApplication.getLayerManager().addLayer(layer);
+        try {
+            Node n = new Node(new LatLon(50, 10));
+            ds.addPrimitive(n);
 
-        MapGridPaintable.TYPE.put(GridType.PROJECTED);
-        new SetGridOriginAction(en).actionPerformed(new ActionEvent(this, 0, ""));
-        assertEquals(en.east(), MapGridPaintable.ORIGIN_X.get(), 1e-6);
-        assertEquals(en.north(), MapGridPaintable.ORIGIN_Y.get(), 1e-6);
-        assertFalse(new SetGridOriginAction(null).isEnabled());
+            assertFalse(new SetGridOriginAction().isEnabled());
+
+            ds.setSelected(n);
+            EastNorth en = n.getEastNorth();
+            MapGridPaintable.TYPE.put(GridType.LATLON);
+            SetGridOriginAction action = new SetGridOriginAction();
+            assertTrue(action.isEnabled());
+            action.actionPerformed(new ActionEvent(this, 0, ""));
+            assertEquals(10, MapGridPaintable.ORIGIN_X.get(), 1e-7);
+            assertEquals(50, MapGridPaintable.ORIGIN_Y.get(), 1e-7);
+            assertTrue(MapGridPaintable.ENABLED.get());
+
+            MapGridPaintable.TYPE.put(GridType.PROJECTED);
+            action.actionPerformed(new ActionEvent(this, 0, ""));
+            assertEquals(en.east(), MapGridPaintable.ORIGIN_X.get(), 1e-6);
+            assertEquals(en.north(), MapGridPaintable.ORIGIN_Y.get(), 1e-6);
+        } finally {
+            MainApplication.getLayerManager().removeLayer(layer);
+        }
+    }
+
+    /**
+     * With more than one node reachable from the selection, the origin is the arithmetic mean of their positions:
+     * the centroid of two nodes of a way is their midpoint, not weighted by any polygon area.
+     */
+    @Test
+    void testSetOriginCentroid() {
+        DataSet ds = new DataSet();
+        OsmDataLayer layer = new OsmDataLayer(ds, "GridActionsTest", null);
+        MainApplication.getLayerManager().addLayer(layer);
+        try {
+            Node a = new Node(new EastNorth(0, 0));
+            Node b = new Node(new EastNorth(100, 0));
+            Way w = new Way();
+            w.addNode(a);
+            w.addNode(b);
+            ds.addPrimitive(a);
+            ds.addPrimitive(b);
+            ds.addPrimitive(w);
+
+            ds.setSelected(w);
+            MapGridPaintable.TYPE.put(GridType.PROJECTED);
+            SetGridOriginAction action = new SetGridOriginAction();
+            assertTrue(action.isEnabled());
+            action.actionPerformed(new ActionEvent(this, 0, ""));
+            assertEquals(50, MapGridPaintable.ORIGIN_X.get(), 1e-6);
+            assertEquals(0, MapGridPaintable.ORIGIN_Y.get(), 1e-6);
+
+            // a relation contributes its node members
+            Node c = new Node(new EastNorth(0, 100));
+            ds.addPrimitive(c);
+            Relation r = new Relation();
+            r.addMember(new RelationMember("", c));
+            ds.addPrimitive(r);
+            ds.setSelected(r);
+            action = new SetGridOriginAction();
+            assertTrue(action.isEnabled());
+            action.actionPerformed(new ActionEvent(this, 0, ""));
+            assertEquals(0, MapGridPaintable.ORIGIN_X.get(), 1e-6);
+            assertEquals(100, MapGridPaintable.ORIGIN_Y.get(), 1e-6);
+
+            ds.setSelected();
+            assertNull(SetGridOriginAction.getCentroid(ds));
+            assertFalse(new SetGridOriginAction().isEnabled());
+        } finally {
+            MainApplication.getLayerManager().removeLayer(layer);
+        }
     }
 
     /**
@@ -79,6 +143,7 @@ class GridActionsTest {
 
     /**
      * The direction comes from a single selected way or two selected nodes; anything else disables the action.
+     * The action reacts live to selection changes, since it now lives in a persistent menu.
      */
     @Test
     void testAlignToSelection() {
@@ -100,14 +165,16 @@ class GridActionsTest {
 
             ds.setSelected();
             assertNull(AlignGridRotationAction.getSelectedDirection(ds));
-            assertFalse(new AlignGridRotationAction().isEnabled());
+            AlignGridRotationAction action = new AlignGridRotationAction();
+            assertFalse(action.isEnabled());
             ds.setSelected(a);
             assertNull(AlignGridRotationAction.getSelectedDirection(ds));
+            assertFalse(action.isEnabled());
             ds.setSelected(a, b, c);
             assertNull(AlignGridRotationAction.getSelectedDirection(ds));
+            assertFalse(action.isEnabled());
 
             ds.setSelected(a, b);
-            AlignGridRotationAction action = new AlignGridRotationAction();
             assertTrue(action.isEnabled());
             MapGridPaintable.TYPE.put(GridType.LATLON);
             action.actionPerformed(new ActionEvent(this, 0, ""));
@@ -118,6 +185,7 @@ class GridActionsTest {
 
             // the way: first to last node (a to b), not the first segment
             ds.setSelected(w);
+            assertTrue(action.isEnabled());
             EastNorth[] dir = AlignGridRotationAction.getSelectedDirection(ds);
             assertEquals(a.getEastNorth(), dir[0]);
             assertEquals(b.getEastNorth(), dir[1]);

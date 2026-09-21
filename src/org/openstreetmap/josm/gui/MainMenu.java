@@ -30,6 +30,7 @@ import javax.swing.event.MenuListener;
 
 import org.openstreetmap.josm.actions.AboutAction;
 import org.openstreetmap.josm.actions.AddNodeAction;
+import org.openstreetmap.josm.actions.AlignGridRotationAction;
 import org.openstreetmap.josm.actions.AlignInCircleAction;
 import org.openstreetmap.josm.actions.AlignInLineAction;
 import org.openstreetmap.josm.actions.AutoScaleAction;
@@ -100,6 +101,7 @@ import org.openstreetmap.josm.actions.SelectNonBranchingWaySequencesAction;
 import org.openstreetmap.josm.actions.SelectSharedChildObjectsAction;
 import org.openstreetmap.josm.actions.SessionSaveAction;
 import org.openstreetmap.josm.actions.SessionSaveAsAction;
+import org.openstreetmap.josm.actions.SetGridOriginAction;
 import org.openstreetmap.josm.actions.ShowGridAction;
 import org.openstreetmap.josm.actions.ShowStatusReportAction;
 import org.openstreetmap.josm.actions.SimplifyWayAction;
@@ -257,8 +259,14 @@ public class MainMenu extends JMenuBar {
     public final TiledRenderToggleAction tiledRenderToggleAction = new TiledRenderToggleAction();
     /** View / Hatch area outside download */
     public final DrawBoundariesOfDownloadedDataAction drawBoundariesOfDownloadedDataAction = new DrawBoundariesOfDownloadedDataAction();
-    /** View / Show grid */
+    /** View / Map submenu: the grid drawn over the map and its placement */
+    public final JMenu mapMenu = new JMenu(tr("Map"));
+    /** View / Map / Show grid */
     public final ShowGridAction showGridAction = new ShowGridAction();
+    /** View / Map / Set grid origin to selection */
+    public final SetGridOriginAction setGridOriginAction = new SetGridOriginAction();
+    /** View / Map / Align grid rotation to selection */
+    public final AlignGridRotationAction alignGridRotationAction = new AlignGridRotationAction();
     /** View / Advanced info */
     public final InfoAction info = new InfoAction();
     /** View / Advanced info (web) */
@@ -818,8 +826,12 @@ public class MainMenu extends JMenuBar {
         final JCheckBoxMenuItem hatchAreaOutsideDownloadMenuItem = drawBoundariesOfDownloadedDataAction.getCheckbox();
         viewMenu.add(hatchAreaOutsideDownloadMenuItem);
         ExpertToggleAction.addVisibilitySwitcher(hatchAreaOutsideDownloadMenuItem);
-        // -- grid toggle action
-        viewMenu.add(showGridAction.getCheckbox());
+        // -- Map submenu (grid)
+        mapMenu.add(showGridAction.getCheckbox());
+        mapMenu.addSeparator();
+        add(mapMenu, setGridOriginAction);
+        add(mapMenu, alignGridRotationAction);
+        viewMenu.add(mapMenu);
 
         viewMenu.add(new MapPaintMenu());
         viewMenu.addSeparator();

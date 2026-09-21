@@ -80,9 +80,7 @@ import org.openstreetmap.gui.jmapviewer.tilesources.AbstractTMSTileSource;
 import org.openstreetmap.josm.actions.AutoScaleAction;
 import org.openstreetmap.josm.actions.ExpertToggleAction;
 import org.openstreetmap.josm.actions.ImageryAdjustAction;
-import org.openstreetmap.josm.actions.AlignGridRotationAction;
 import org.openstreetmap.josm.actions.RenameLayerAction;
-import org.openstreetmap.josm.actions.SetGridOriginAction;
 import org.openstreetmap.josm.actions.SaveActionBase;
 import org.openstreetmap.josm.data.Bounds;
 import org.openstreetmap.josm.data.ProjectionBounds;
@@ -640,13 +638,6 @@ implements ImageObserver, TileLoaderListener, ZoomChangeListener, FilterChangeLi
                 Arrays.stream(menu.getMenuComponents()).forEachOrdered(this::add);
             } else if (submenus.size() > 1) {
                 submenus.stream().forEachOrdered(this::add);
-            }
-
-            // entries for the grid drawn over the map, independent of the layers
-            if (MainApplication.isDisplayingMapView()) {
-                add(new JSeparator());
-                add(new JMenuItem(new SetGridOriginAction(MainApplication.getMap().mapView.getEastNorth(x, y))));
-                add(new JMenuItem(new AlignGridRotationAction()));
             }
         }
     }
