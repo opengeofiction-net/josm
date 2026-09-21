@@ -34,7 +34,11 @@ public class ShowTileBordersAction extends AbstractAction implements LayerAction
     @Override
     public void actionPerformed(ActionEvent ae) {
         TileSourceDisplaySettings settings = layer.getDisplaySettings();
-        settings.setShowTileBorders(!settings.isShowTileBorders());
+        boolean show = !settings.isShowTileBorders();
+        settings.setShowTileBorders(show);
+        // remember the choice, so that it also applies to layers created later and after a restart. Only the
+        // action does this, not the setter, so that loading a session does not overwrite the preference.
+        TileSourceDisplaySettings.PROP_SHOW_TILE_BORDERS.put(show);
     }
 
     @Override

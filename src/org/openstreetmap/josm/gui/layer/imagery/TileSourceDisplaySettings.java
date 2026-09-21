@@ -61,6 +61,14 @@ public class TileSourceDisplaySettings implements SessionAwareReadApply {
      */
     public static final BooleanProperty PROP_AUTO_ZOOM = new BooleanProperty(PREFERENCE_PREFIX + ".default_autozoom", true);
 
+    /**
+     * The default tile borders property, remembered whenever the user toggles them, so that the choice also
+     * applies to layers created later and after a restart
+     * @since xxx
+     */
+    public static final BooleanProperty PROP_SHOW_TILE_BORDERS
+            = new BooleanProperty(PREFERENCE_PREFIX + ".default_showtileborders", false);
+
 
     /** if layers changes automatically, when user zooms in */
     private boolean autoZoom;
@@ -101,7 +109,7 @@ public class TileSourceDisplaySettings implements SessionAwareReadApply {
         autoZoom = getProperty(prefixes, "default_autozoom", PROP_AUTO_ZOOM.getDefaultValue());
         autoLoad = getProperty(prefixes, "default_autoload", PROP_AUTO_LOAD.getDefaultValue());
         showErrors = getProperty(prefixes, "default_showerrors", Boolean.TRUE);
-        showTileBorders = getProperty(prefixes, "default_showtileborders", Boolean.FALSE);
+        showTileBorders = getProperty(prefixes, "default_showtileborders", PROP_SHOW_TILE_BORDERS.getDefaultValue());
     }
 
     private static boolean getProperty(String[] prefixes, String name, Boolean def) {
