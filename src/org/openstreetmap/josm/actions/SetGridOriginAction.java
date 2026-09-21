@@ -16,6 +16,7 @@ import org.openstreetmap.josm.data.projection.ProjectionRegistry;
 import org.openstreetmap.josm.gui.MainApplication;
 import org.openstreetmap.josm.gui.layer.MapGridPaintable;
 import org.openstreetmap.josm.gui.layer.MapGridPaintable.GridType;
+import org.openstreetmap.josm.tools.Logging;
 
 /**
  * Moves the origin of the grid drawn over the map to the current selection, so that grid lines pass through it,
@@ -94,7 +95,15 @@ public class SetGridOriginAction extends JosmAction {
             MapGridPaintable.ORIGIN_X.put(position.east());
             MapGridPaintable.ORIGIN_Y.put(position.north());
         } else {
-            LatLon ll = ProjectionRegistry.getProjection().eastNorth2latlon(position);
+            final LatLon ll;
+            try {
+                ll = ProjectionRegistry.getProjection().eastNorth2latlon(position);
+            } catch (IllegalArgumentException e) {
+                // the position is outside the domain of the projection, leave the grid as it is
+                Logging.warn("Cannot use {0} as grid origin: {1}", position, e.getMessage());
+                Logging.trace(e);
+                return;
+            }
             MapGridPaintable.ORIGIN_X.put(ll.lon());
             MapGridPaintable.ORIGIN_Y.put(ll.lat());
         }

@@ -101,16 +101,15 @@ public class TileSourceDisplaySettings implements SessionAwareReadApply {
         autoZoom = getProperty(prefixes, "default_autozoom", PROP_AUTO_ZOOM.getDefaultValue());
         autoLoad = getProperty(prefixes, "default_autoload", PROP_AUTO_LOAD.getDefaultValue());
         showErrors = getProperty(prefixes, "default_showerrors", Boolean.TRUE);
-        showTileBorders = Config.getPref().getBoolean(PREFERENCE_PREFIX + ".default_showtileborders", false);
+        showTileBorders = getProperty(prefixes, "default_showtileborders", Boolean.FALSE);
     }
 
     private static boolean getProperty(String[] prefixes, String name, Boolean def) {
-        // iterate through all values to force the preferences to receive the default value.
-        // we only support a default value of true.
-        boolean value = true;
+        // iterate through all values to force the preferences to receive the default value
+        boolean value = def;
         for (String p : prefixes) {
             String key = p + "." + name;
-            boolean currentValue = Config.getPref().getBoolean(key, true);
+            boolean currentValue = Config.getPref().getBoolean(key, def);
             if (!Config.getPref().get(key, def.toString()).isEmpty()) {
                 value = currentValue;
             }

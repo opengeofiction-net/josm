@@ -15,9 +15,11 @@ import java.util.Map;
  * difference, divide), which the standard {@link java.awt.AlphaComposite} does not provide.
  * <p>
  * The source alpha (including the coverage produced by antialiasing) controls how strongly the blended color
- * replaces the destination. It works on any color model, but is implemented per pixel and thus only meant for
- * drawing thin shapes such as grid lines. It must be used on {@link java.awt.image.BufferedImage} backed graphics,
- * since hardware accelerated pipelines do not support custom composites.
+ * replaces the destination, following the "source over" rule of the W3C compositing model, so that a
+ * translucent destination is handled correctly as well. It works on any color model, but is implemented per
+ * pixel and thus only meant for drawing thin shapes such as grid lines. It must be used on
+ * {@link java.awt.image.BufferedImage} backed graphics, since hardware accelerated pipelines do not support
+ * custom composites.
  * @since xxx
  */
 public final class BlendComposite implements Composite {
@@ -95,6 +97,60 @@ public final class BlendComposite implements Composite {
         }
     }
 
+    /**
+     * Composes one pixel: blends the source color with the destination and combines the two with the
+     * "source over" rule, so that both the source alpha (including the coverage produced by antialiasing)
+     * and a translucent destination are handled correctly.
+     * @param mode blend mode
+     * @param s source color (ARGB, not premultiplied)
+     * @param d destination color (ARGB, not premultiplied)
+     * @return the resulting color (ARGB, not premultiplied)
+     */
+    static int composePixel(Mode mode, int s, int d) {
+        int sa = s >>> 24;
+        if (sa == 0) {
+            return d;
+        }
+        int da = d >>> 24;
+        if (da == 0xff) {
+            // opaque destination (the map view): the result is the destination moved towards the blended color
+            return 0xff000000
+                    | (mix(blend(mode, (s >> 16) & 0xff, (d >> 16) & 0xff), (d >> 16) & 0xff, sa) << 16)
+                    | (mix(blend(mode, (s >> 8) & 0xff, (d >> 8) & 0xff), (d >> 8) & 0xff, sa) << 8)
+                    | mix(blend(mode, s & 0xff, d & 0xff), d & 0xff, sa);
+        }
+        int a = sa + da * (0xff - sa) / 0xff;
+        if (a == 0) {
+            return 0;
+        }
+        return (a << 24)
+                | (composeChannel(mode, (s >> 16) & 0xff, (d >> 16) & 0xff, sa, da, a) << 16)
+                | (composeChannel(mode, (s >> 8) & 0xff, (d >> 8) & 0xff, sa, da, a) << 8)
+                | composeChannel(mode, s & 0xff, d & 0xff, sa, da, a);
+    }
+
+    /**
+     * Composes one color channel of a translucent destination, see
+     * <a href="https://www.w3.org/TR/compositing-1/#blending">the W3C compositing model</a>:
+     * {@code co = as*(1-ab)*Cs + as*ab*B(Cb,Cs) + (1-as)*ab*Cb} and {@code Co = co/ao}.
+     * @param mode blend mode
+     * @param cs source channel value (0-255)
+     * @param cb destination (backdrop) channel value (0-255)
+     * @param sa source alpha (0-255)
+     * @param da destination alpha (0-255)
+     * @param a the resulting alpha (0-255), must not be 0
+     * @return the resulting channel value (0-255)
+     */
+    private static int composeChannel(Mode mode, int cs, int cb, int sa, int da, int a) {
+        int co = sa * (0xff - da) * cs + sa * da * blend(mode, cs, cb) + (0xff - sa) * da * cb;
+        return co / (0xff * a);
+    }
+
+    /** linear interpolation between d (alpha 0) and s (alpha 255) */
+    private static int mix(int s, int d, int alpha) {
+        return d + (s - d) * alpha / 0xff;
+    }
+
     private static final class BlendContext implements CompositeContext {
         private final Mode mode;
         private final ColorModel srcColorModel;
@@ -108,8 +164,8 @@ public final class BlendComposite implements Composite {
 
         @Override
         public void compose(Raster src, Raster dstIn, WritableRaster dstOut) {
-            int w = Math.min(src.getWidth(), dstIn.getWidth());
-            int h = Math.min(src.getHeight(), dstIn.getHeight());
+            int w = Math.min(Math.min(src.getWidth(), dstIn.getWidth()), dstOut.getWidth());
+            int h = Math.min(Math.min(src.getHeight(), dstIn.getHeight()), dstOut.getHeight());
             Object srcPixel = null;
             Object dstPixel = null;
             Object outPixel = null;
@@ -117,29 +173,11 @@ public final class BlendComposite implements Composite {
                 for (int x = 0; x < w; x++) {
                     srcPixel = src.getDataElements(x, y, srcPixel);
                     dstPixel = dstIn.getDataElements(x, y, dstPixel);
-                    int s = srcColorModel.getRGB(srcPixel);
-                    int d = dstColorModel.getRGB(dstPixel);
-                    int sa = s >>> 24;
-                    int result;
-                    if (sa == 0) {
-                        result = d;
-                    } else {
-                        int da = d >>> 24;
-                        int r = mix(blend(mode, (s >> 16) & 0xff, (d >> 16) & 0xff), (d >> 16) & 0xff, sa);
-                        int g = mix(blend(mode, (s >> 8) & 0xff, (d >> 8) & 0xff), (d >> 8) & 0xff, sa);
-                        int b = mix(blend(mode, s & 0xff, d & 0xff), d & 0xff, sa);
-                        int a = Math.max(sa, da);
-                        result = (a << 24) | (r << 16) | (g << 8) | b;
-                    }
+                    int result = composePixel(mode, srcColorModel.getRGB(srcPixel), dstColorModel.getRGB(dstPixel));
                     outPixel = dstColorModel.getDataElements(result, outPixel);
                     dstOut.setDataElements(x, y, outPixel);
                 }
             }
-        }
-
-        /** linear interpolation between d (alpha 0) and s (alpha 255) */
-        private static int mix(int s, int d, int alpha) {
-            return d + (s - d) * alpha / 255;
         }
 
         @Override

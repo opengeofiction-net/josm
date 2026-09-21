@@ -41,6 +41,9 @@ import org.openstreetmap.josm.tools.Logging;
  * grid stays readable at every zoom level while remaining aligned to the configured one.
  * <p>
  * All settings are preferences (prefix {@code draw.grid.}), see {@link org.openstreetmap.josm.gui.preferences.display.GridPreference}.
+ * <p>
+ * An instance registers itself as a preference listener, so {@link #destroy()} must be called when it is no
+ * longer used ({@link org.openstreetmap.josm.gui.MapFrame} does this), otherwise the listener is leaked.
  * @since xxx
  */
 public class MapGridPaintable extends AbstractMapViewPaintable implements PreferenceChangedListener, Destroyable {
@@ -133,7 +136,8 @@ public class MapGridPaintable extends AbstractMapViewPaintable implements Prefer
     /** hard limit for the number of lines in one direction, whatever the settings are */
     private static final int MAX_LINES = 500;
 
-    private MapView mapView;
+    /** written by {@link #paint} and read by {@link #preferenceChanged}, which may run on another thread */
+    private volatile MapView mapView;
 
     /**
      * Constructs a new {@code MapGridPaintable}.
@@ -362,8 +366,14 @@ public class MapGridPaintable extends AbstractMapViewPaintable implements Prefer
         if (kLonMax - kLonMin > MAX_LINES || kLatMax - kLatMin > MAX_LINES) {
             return lines;
         }
+        // for a projection which does not span the whole globe, meridians outside its longitude range are
+        // skipped like the parallels below; a full range must not be checked since longitudes wrap around
+        boolean limitedLon = world.getMinLon() > -180 || world.getMaxLon() < 180;
         for (long k = kLonMin; k <= kLonMax; k++) {
             double lon = LatLon.toIntervalLon(originLon + k * spacingLon);
+            if (limitedLon && (lon < world.getMinLon() || lon > world.getMaxLon())) {
+                continue;
+            }
             List<LatLon> line = new ArrayList<>(segments + 1);
             for (int i = 0; i <= segments; i++) {
                 line.add(new LatLon(minLat + (maxLat - minLat) * i / segments, lon));

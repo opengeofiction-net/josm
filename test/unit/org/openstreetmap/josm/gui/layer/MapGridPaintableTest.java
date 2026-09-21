@@ -144,6 +144,28 @@ class MapGridPaintableTest {
         assertTrue(gridLines.stream().allMatch(l -> l.points.stream().allMatch(ll -> ll.lon() >= -180 && ll.lon() <= 180)));
     }
 
+    /**
+     * A projection which does not span the whole globe clamps the meridians to its longitude range, the same way
+     * the parallels are clamped to its latitude range.
+     */
+    @Test
+    void testLatLonGridLimitedWorld() {
+        // a projection valid for 6 degrees of longitude only, e.g. a UTM zone
+        Bounds world = new Bounds(0, 6, 84, 12);
+        Bounds area = new Bounds(45, 2, 50, 16);
+        List<LatLonGridLine> lines = MapGridPaintable.getLatLonGridLines(area, world, 2, 2, 0, 0, 1);
+        assertTrue(lines.stream().filter(l -> l.meridian).findAny().isPresent(), lines.toString());
+        assertTrue(lines.stream().filter(l -> l.meridian)
+                .allMatch(l -> l.points.get(0).lon() >= 6 && l.points.get(0).lon() <= 12), lines.toString());
+        // meridians 6, 8, 10, 12 are inside the projection, 2, 4, 14, 16 are not
+        assertEquals(4, lines.stream().filter(l -> l.meridian).count(), lines.toString());
+
+        // a world spanning all longitudes keeps every meridian, including across the antimeridian
+        Bounds whole = new Bounds(-85, -180, 85, 180);
+        assertEquals(8, MapGridPaintable.getLatLonGridLines(area, whole, 2, 2, 0, 0, 1)
+                .stream().filter(l -> l.meridian).count());
+    }
+
     private static List<List<LatLon>> points(List<LatLonGridLine> lines) {
         return lines.stream().map(l -> l.points).collect(Collectors.toList());
     }

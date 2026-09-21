@@ -79,6 +79,37 @@ class BlendCompositeTest {
     }
 
     /**
+     * A translucent destination is composed with the "source over" rule: the result alpha is
+     * {@code as + ab*(1-as)} and the blend only applies where the backdrop is actually present.
+     */
+    @Test
+    void testTranslucentDestination() {
+        // opaque source over a half transparent destination: the source wins, the result is opaque
+        int argb = BlendComposite.composePixel(Mode.MULTIPLY, 0xff808080, 0x80ffffff);
+        assertEquals(0xff, argb >>> 24);
+        assertEquals(0x80, (argb >> 16) & 0xff, 1);
+
+        // half transparent source over a fully transparent destination: the source shows unblended
+        argb = BlendComposite.composePixel(Mode.MULTIPLY, 0x80123456, 0x00000000);
+        assertEquals(0x80, argb >>> 24);
+        assertEquals(0x12, (argb >> 16) & 0xff, 1);
+        assertEquals(0x34, (argb >> 8) & 0xff, 1);
+        assertEquals(0x56, argb & 0xff, 1);
+
+        // half transparent source over a half transparent destination: alpha is 128 + 128*(1-128/255)
+        argb = BlendComposite.composePixel(Mode.NORMAL, 0x80ffffff, 0x80000000);
+        assertEquals(128 + 128 * (255 - 128) / 255, argb >>> 24);
+
+        // a transparent source never changes the destination, whatever the mode
+        for (Mode mode : Mode.values()) {
+            assertEquals(0x8012ab34, BlendComposite.composePixel(mode, 0x00ffffff, 0x8012ab34), mode::toString);
+        }
+
+        // an opaque destination keeps its alpha and is only moved towards the blended color
+        assertEquals(0xff000000, BlendComposite.composePixel(Mode.MULTIPLY, 0xff000000, 0xffffffff));
+    }
+
+    /**
      * Instances are shared per mode
      */
     @Test
