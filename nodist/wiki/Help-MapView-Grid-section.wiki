@@ -11,7 +11,7 @@ A screenshot of a rotated 1 km grid over a city (yellow lines, hard light) shoul
 A configurable grid can be drawn over the map view, above all layers, as a visual aid: for example to see at a glance which parts of a large area have already been edited, or to lay out a regular street pattern. The grid is purely visual. There is **no snapping** to grid lines; drawing and editing behave exactly as without the grid.
 
  Show and hide:: [wikitr:/Help/Menu/View View] > **Grid** > **Show**. The action can also be placed on the [wikitr:/Help/Preferences/Toolbar toolbar].
- Settings:: [wikitr:/Help/Preferences/Grid Preferences > Grid]: grid type (projected coordinates in metres, or latitude/longitude in degrees), east and north spacing, rotation, origin, line width, blend mode and the minimum distance of the lines on screen. The line colors are in [wikitr:/Help/Preferences/Colors Preferences > Colors] ("grid east lines", "grid north lines").
+ Settings:: [wikitr:/Help/Menu/View View] > **Grid** > **Grid preferences...** opens [wikitr:/Help/Preferences/Grid Preferences > Grid] directly: grid type (projected coordinates in metres, or latitude/longitude in degrees), east and north spacing, rotation, origin, line width, blend mode and the minimum distance of the lines on screen. The line colors are in [wikitr:/Help/Preferences/Colors Preferences > Colors] ("grid east lines", "grid north lines").
 
 The default is a grid of 1000 m × 1000 m in projected coordinates, drawn in yellow with the "hard light" blend mode so that it stays visible over light and dark map features. Spacings of a projected grid are true distances in metres, the same as measured by the [wikitr:/Help/Action/Parallel parallel way tool] and the status bar. When zooming out, the spacing is automatically multiplied by 10 (100, 1000, ...) as soon as the lines would come closer than a configurable number of pixels, so the grid stays readable while remaining aligned to the configured one.
 
@@ -26,7 +26,7 @@ Two entries of [wikitr:/Help/Menu/View View] > **Grid** position the grid from t
 
 Both entries follow the selection live, so they enable and disable themselves as you select and deselect objects; there is no need to reopen the menu.
 
-Typical workflow for an existing regular street grid: select a straight main street, View > Grid > **Align rotation to selection**; then select the node at a street intersection, View > Grid > **Set origin to selection**; finally set the block size as spacing in [wikitr:/Help/Preferences/Grid Preferences > Grid].
+Typical workflow for an existing regular street grid: select a straight main street, View > Grid > **Align rotation to selection**; then select the node at a street intersection, View > Grid > **Set origin to selection**; finally set the block size as spacing via View > Grid > **Grid preferences...**.
 
 === Tile borders of imagery layers ===
 

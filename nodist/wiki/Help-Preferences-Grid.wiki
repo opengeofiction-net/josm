@@ -11,7 +11,7 @@ Screenshot of the Grid preferences tab to be added:
 
 Settings of the grid that can be drawn over the [wikitr:/Help/MapView map view]. The grid is a visual aid for laying out and checking mapping, for example to see which districts of a city have been edited or to plan a regular street pattern. It is drawn above all layers and there is **no snapping** to it: drawing and editing are not affected by the grid.
 
-The grid is switched on and off with [wikitr:/Help/Menu/View View] > **Grid** > **Show**; the checkbox at the top of this tab does the same.
+The grid is switched on and off with [wikitr:/Help/Menu/View View] > **Grid** > **Show**; the checkbox at the top of this tab does the same. This tab can also be opened directly with View > Grid > **Grid preferences...**.
 
 == Grid type ==
 
