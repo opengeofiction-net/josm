@@ -259,13 +259,13 @@ public class MainMenu extends JMenuBar {
     public final TiledRenderToggleAction tiledRenderToggleAction = new TiledRenderToggleAction();
     /** View / Hatch area outside download */
     public final DrawBoundariesOfDownloadedDataAction drawBoundariesOfDownloadedDataAction = new DrawBoundariesOfDownloadedDataAction();
-    /** View / Map submenu: the grid drawn over the map and its placement */
-    public final JMenu mapMenu = new JMenu(tr("Map"));
-    /** View / Map / Show grid */
+    /** View / Grid submenu: the grid drawn over the map and its placement */
+    public final JMenu gridMenu = new JMenu(tr("Grid"));
+    /** View / Grid / Show */
     public final ShowGridAction showGridAction = new ShowGridAction();
-    /** View / Map / Set grid origin to selection */
+    /** View / Grid / Set origin to selection */
     public final SetGridOriginAction setGridOriginAction = new SetGridOriginAction();
-    /** View / Map / Align grid rotation to selection */
+    /** View / Grid / Align rotation to selection */
     public final AlignGridRotationAction alignGridRotationAction = new AlignGridRotationAction();
     /** View / Advanced info */
     public final InfoAction info = new InfoAction();
@@ -826,12 +826,12 @@ public class MainMenu extends JMenuBar {
         final JCheckBoxMenuItem hatchAreaOutsideDownloadMenuItem = drawBoundariesOfDownloadedDataAction.getCheckbox();
         viewMenu.add(hatchAreaOutsideDownloadMenuItem);
         ExpertToggleAction.addVisibilitySwitcher(hatchAreaOutsideDownloadMenuItem);
-        // -- Map submenu (grid)
-        mapMenu.add(showGridAction.getCheckbox());
-        mapMenu.addSeparator();
-        add(mapMenu, setGridOriginAction);
-        add(mapMenu, alignGridRotationAction);
-        viewMenu.add(mapMenu);
+        // -- Grid submenu
+        gridMenu.add(showGridAction.getCheckbox());
+        gridMenu.addSeparator();
+        add(gridMenu, setGridOriginAction);
+        add(gridMenu, alignGridRotationAction);
+        viewMenu.add(gridMenu);
 
         viewMenu.add(new MapPaintMenu());
         viewMenu.addSeparator();

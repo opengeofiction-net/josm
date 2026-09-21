@@ -20,7 +20,7 @@ public class ShowGridAction extends PreferenceToggleAction {
      * Constructs a new {@link ShowGridAction}.
      */
     public ShowGridAction() {
-        super(tr("Show grid"),
+        super(tr("Show"),
                 tr("Enable/disable the grid drawn over the map. Its spacing and orientation are set in the display preferences."),
                 MapGridPaintable.ENABLED
         );

@@ -11,7 +11,7 @@ Screenshot of the Grid preferences tab to be added:
 
 Settings of the grid that can be drawn over the [wikitr:/Help/MapView map view]. The grid is a visual aid for laying out and checking mapping, for example to see which districts of a city have been edited or to plan a regular street pattern. It is drawn above all layers and there is **no snapping** to it: drawing and editing are not affected by the grid.
 
-The grid is switched on and off with [wikitr:/Help/Menu/View View] > **Map** > **Show grid**; the checkbox at the top of this tab does the same.
+The grid is switched on and off with [wikitr:/Help/Menu/View View] > **Grid** > **Show**; the checkbox at the top of this tab does the same.
 
 == Grid type ==
 
@@ -31,14 +31,14 @@ For a latitude/longitude grid the spacing is in degrees; decimal values like `0.
 
 Rotation of a projected grid around its origin, counter clockwise, in degrees. Since a rectangular grid repeats every 90°, a rotation of 64° is the same grid as −26°. The rotation is ignored for a latitude/longitude grid.
 
-The rotation can also be taken from existing data: select a straight way (or exactly two nodes) that runs along the desired grid direction, then [wikitr:/Help/Menu/View View] > **Map** > **Align grid rotation to selection**, see [wikitr:/Help/MapView#Grid Map view > Grid].
+The rotation can also be taken from existing data: select a straight way (or exactly two nodes) that runs along the desired grid direction, then [wikitr:/Help/Menu/View View] > **Grid** > **Align rotation to selection**, see [wikitr:/Help/MapView#Grid Map view > Grid].
 
 == Origin ==
 
  Origin east / Origin longitude:: East coordinate resp. longitude of a point through which a north-south grid line passes.
  Origin north / Origin latitude:: North coordinate resp. latitude of a point through which an east-west grid line passes.
 
-The origin fixes the position of the grid lines. The easiest way to set it is to select the point where two grid lines should cross (for example the node at a street intersection) and choose [wikitr:/Help/Menu/View View] > **Map** > **Set grid origin to selection**; this fills in both values and switches the grid on. If more than one node is selected (or a whole way, or a relation), the centroid — the arithmetic mean position of every node reachable from the selection — is used instead, so any selection works, not only a single node. For a projected grid the origin is also the point where the metric spacing is exact.
+The origin fixes the position of the grid lines. The easiest way to set it is to select the point where two grid lines should cross (for example the node at a street intersection) and choose [wikitr:/Help/Menu/View View] > **Grid** > **Set origin to selection**; this fills in both values and switches the grid on. If more than one node is selected (or a whole way, or a relation), the centroid — the arithmetic mean position of every node reachable from the selection — is used instead, so any selection works, not only a single node. For a projected grid the origin is also the point where the metric spacing is exact.
 
 == Minimum line distance on screen (pixels) ==
 

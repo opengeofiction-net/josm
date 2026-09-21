@@ -30,7 +30,7 @@ public class AlignGridRotationAction extends JosmAction {
      * Constructs a new {@code AlignGridRotationAction}.
      */
     public AlignGridRotationAction() {
-        super(tr("Align grid rotation to selection"), (String) null,
+        super(tr("Align rotation to selection"), (String) null,
                 tr("Rotate the grid so that its lines are parallel to the selected way "
                         + "(first to last node) or to the line between the two selected nodes. Switches to a projected grid."),
                 null, false);
