@@ -146,14 +146,15 @@ public class OsmApiUrlInputPanel extends JPanel {
     }
 
     /**
-     * Returns the entered API URL, stripped of leading and trailing white characters.
-     * @return the entered API URL, stripped of leading and trailing white characters. May be an empty string
-     *         if nothing has been entered. In this case, it means the user wants to use {@link IUrls#getDefaultOsmApiUrl}.
-     * @see Utils#strip(String)
+     * Returns the entered API URL, stripped of leading and trailing white characters and of trailing '/'.
+     * @return the entered API URL, stripped of leading and trailing white characters and of trailing '/'.
+     *         May be an empty string if nothing has been entered. In this case, it means the user wants to
+     *         use {@link IUrls#getDefaultOsmApiUrl}.
+     * @see OsmApi#normalizeApiUrl(String)
      * @since 6602
      */
     public final String getStrippedApiUrl() {
-        return Utils.strip(tfOsmServerUrl.getText());
+        return OsmApi.normalizeApiUrl(tfOsmServerUrl.getText());
     }
 
     class ValidateApiUrlAction extends AbstractAction implements DocumentListener {
