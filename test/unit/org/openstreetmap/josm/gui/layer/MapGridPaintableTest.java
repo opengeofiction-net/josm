@@ -166,6 +166,107 @@ class MapGridPaintableTest {
                 .stream().filter(l -> l.meridian).count());
     }
 
+    /**
+     * A parallel which crosses the antimeridian is split in two, one line on each side of it. Non-regression
+     * test: wrapping the longitudes of a single polyline instead made it jump right across the view.
+     */
+    @Test
+    void testLatLonGridAcrossAntimeridian() {
+        Bounds world = new Bounds(-85, -180, 85, 180);
+        List<LatLonGridLine> lines = MapGridPaintable.getLatLonGridLines(new Bounds(0, 165, 10, -165), world, 10, 90, 0, 0, 4);
+        List<List<LatLon>> parallels = points(lines.stream().filter(l -> !l.meridian).collect(Collectors.toList()));
+        // the parallel at latitude 0 runs from 165 to 180 and from -180 to -165
+        assertEquals(2, parallels.size(), parallels.toString());
+        assertTrue(parallels.stream().anyMatch(l -> l.get(0).lon() == 165 && l.get(4).lon() == 180), parallels.toString());
+        assertTrue(parallels.stream().anyMatch(l -> l.get(0).lon() == -180 && l.get(4).lon() == -165), parallels.toString());
+        for (List<LatLon> line : parallels) {
+            assertEquals(0, line.get(0).lat(), 1e-9);
+            for (int i = 1; i < line.size(); i++) {
+                // no jump: every step is a quarter of the 15 degrees the line spans
+                assertEquals(3.75, line.get(i).lon() - line.get(i - 1).lon(), 1e-9, line.toString());
+            }
+        }
+    }
+
+    /**
+     * The visible bounds cover the whole world once the view is larger than it. Non-regression test: the corners
+     * of such a view lie outside the world, so their longitude wraps around and simply converting them - as
+     * {@link MapView#getRealBounds()} does - yields a far too narrow range which jumps around while zooming.
+     */
+    @Test
+    void testVisibleLatLonBoundsAtWorldZoom() {
+        SizedMapView mv = new SizedMapView();
+        mv.setBounds(new Rectangle(713, 570));
+        GuiHelper.runInEDTAndWait(() -> { /* let the component listener update the view state */ });
+        mv.updateState();
+        mv.zoomTo(new LatLon(0, 0));
+        Bounds world = mv.getProjection().getWorldBoundsLatLon();
+        try {
+            // zoomed in: the whole view shows the world, the bounds are those of the view
+            mv.zoomTo(mv.getCenter(), 1000);
+            Bounds bounds = MapGridPaintable.getVisibleLatLonBounds(mv);
+            assertEquals(mv.getRealBounds().getMinLon(), bounds.getMinLon(), 1e-6);
+            assertEquals(mv.getRealBounds().getMaxLon(), bounds.getMaxLon(), 1e-6);
+
+            // zoomed out until the world is narrower than the view: the bounds are those of the world
+            for (double scale : new double[] {45000, 60000, 77000, 200000}) {
+                mv.zoomTo(mv.getCenter(), scale);
+                bounds = MapGridPaintable.getVisibleLatLonBounds(mv);
+                double worldPixels = mv.getPoint2D(new LatLon(0, 180)).getX() - mv.getPoint2D(new LatLon(0, -180)).getX();
+                if (worldPixels < mv.getWidth()) {
+                    assertEquals(-180, bounds.getMinLon(), 1e-6, "scale " + scale);
+                    assertEquals(180, bounds.getMaxLon(), 1e-6, "scale " + scale);
+                    assertTrue(bounds.getMaxLon() - bounds.getMinLon() > mv.getRealBounds().getMaxLon() - mv.getRealBounds().getMinLon(),
+                            "scale " + scale + ": " + bounds + " not wider than " + mv.getRealBounds());
+                }
+                // Bounds.extend rounds to the OSM precision, so allow for that
+                assertTrue(bounds.getMinLat() >= world.getMinLat() - 1e-6 && bounds.getMaxLat() <= world.getMaxLat() + 1e-6,
+                        "scale " + scale + ": " + bounds + " outside " + world);
+            }
+        } finally {
+            mv.destroy();
+        }
+    }
+
+    /**
+     * Panning past the antimeridian, so that there is blank space beside the world, keeps the grid on screen.
+     * Non-regression test: the clipped edge falls exactly on the antimeridian, whose longitude is ambiguous and
+     * is normalized to -180, which turned a visible range of e.g. 6 W .. 180 into 180 W .. 6 W - the other half
+     * of the world, drawn completely off screen, so that the grid seemed to disappear.
+     */
+    @Test
+    void testVisibleLatLonBoundsPastTheAntimeridian() {
+        SizedMapView mv = new SizedMapView();
+        mv.setBounds(new Rectangle(713, 570));
+        GuiHelper.runInEDTAndWait(() -> { /* let the component listener update the view state */ });
+        mv.updateState();
+        Bounds world = mv.getProjection().getWorldBoundsLatLon();
+        double halfWorld = mv.getProjection().getWorldBoundsBoxEastNorth().maxEast;
+        try {
+            for (double fraction : new double[] {-0.8, -0.5, 0.5, 0.8}) {
+                mv.zoomTo(new EastNorth(fraction * halfWorld, 0), 30000);
+                boolean eastwards = fraction > 0;
+                assertTrue(eastwards ? mv.getProjectionBounds().maxEast > halfWorld : mv.getProjectionBounds().minEast < -halfWorld,
+                        "no blank space beside the world at " + fraction);
+                Bounds bounds = MapGridPaintable.getVisibleLatLonBounds(mv);
+                String at = "at " + fraction + ": " + bounds;
+                assertTrue(bounds.getMinLon() < bounds.getMaxLon(), at);
+                // the range reaches the antimeridian on the blank side and the view edge on the other one
+                assertEquals(eastwards ? 180 : -180, eastwards ? bounds.getMaxLon() : bounds.getMinLon(), 1e-5, at);
+                assertEquals(mv.getProjection().eastNorth2latlon(
+                            new EastNorth(eastwards ? mv.getProjectionBounds().minEast : mv.getProjectionBounds().maxEast, 0)).lon(),
+                        eastwards ? bounds.getMinLon() : bounds.getMaxLon(), 1e-5, at);
+                // and the meridians really are drawn inside the view
+                List<LatLonGridLine> lines = MapGridPaintable.getLatLonGridLines(bounds, world, 10, 10, 0, 0, 2);
+                assertTrue(lines.stream().filter(l -> l.meridian)
+                        .anyMatch(l -> mv.getPoint2D(l.points.get(0)).getX() >= 0 && mv.getPoint2D(l.points.get(0)).getX() <= mv.getWidth()),
+                        at + ", meridians off screen: " + lines);
+            }
+        } finally {
+            mv.destroy();
+        }
+    }
+
     private static List<List<LatLon>> points(List<LatLonGridLine> lines) {
         return lines.stream().map(l -> l.points).collect(Collectors.toList());
     }

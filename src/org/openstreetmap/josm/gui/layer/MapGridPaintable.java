@@ -199,13 +199,14 @@ public class MapGridPaintable extends AbstractMapViewPaintable implements Prefer
         if (sx <= 0 || sy <= 0) {
             return;
         }
-        Bounds view = mv.getRealBounds();
+        Bounds view = getVisibleLatLonBounds(mv);
+        if (view == null) {
+            return;
+        }
         // pixel size of one cell at the center of the view
         LatLon center = view.getCenter();
         Point2D c = mv.getPoint2D(center);
-        Point2D cx = mv.getPoint2D(new LatLon(center.lat(), Math.min(180, center.lon() + sx)));
-        Point2D cy = mv.getPoint2D(new LatLon(Math.min(89, center.lat() + sy), center.lon()));
-        double factor = thinningFactor(Math.min(c.distance(cx), c.distance(cy)));
+        double factor = thinningFactor(Math.min(probePixels(mv, c, center, sx, true), probePixels(mv, c, center, sy, false)));
         List<LatLonGridLine> lines = getLatLonGridLines(view, mv.getProjection().getWorldBoundsLatLon(),
                 sx * factor, sy * factor, ORIGIN_X.get(), ORIGIN_Y.get(), CURVE_SEGMENTS);
         for (LatLonGridLine line : lines) {
@@ -223,6 +224,79 @@ public class MapGridPaintable extends AbstractMapViewPaintable implements Prefer
             }
             g.draw(path);
         }
+    }
+
+    /**
+     * Computes the latitude/longitude bounds of the part of the world which is visible in the given view.
+     * <p>
+     * Contrary to {@link org.openstreetmap.josm.gui.NavigatableComponent#getRealBounds()} this does not simply
+     * convert the corners of the view: as soon as the view is larger than the world, those lie outside the world
+     * and their longitude wraps around, which yields a range much narrower than what is really visible (and one
+     * which jumps around while zooming or panning). The view is therefore first clipped to the world in
+     * projected coordinates.
+     * <p>
+     * The clipped area is kept a hair inside the world, because a point exactly on the antimeridian converts to
+     * an ambiguous longitude: {@link Projection#eastNorth2latlon} normalizes it to -180, which would turn the
+     * visible range of a view showing e.g. 60° E to 180° into 180° W to 60° E, i.e. the other half of the world.
+     * @param mv the map view
+     * @return the visible bounds, or {@code null} if no part of the world is visible
+     */
+    static Bounds getVisibleLatLonBounds(MapView mv) {
+        Projection projection = mv.getProjection();
+        ProjectionBounds view = mv.getProjectionBounds();
+        ProjectionBounds world = projection.getWorldBoundsBoxEastNorth();
+        double minEast = Math.max(view.minEast, world.minEast);
+        double maxEast = Math.min(view.maxEast, world.maxEast);
+        double minNorth = Math.max(view.minNorth, world.minNorth);
+        double maxNorth = Math.min(view.maxNorth, world.maxNorth);
+        if (minEast >= maxEast || minNorth >= maxNorth) {
+            return null;
+        }
+        // stay inside the world, but never collapse the area (the inset is a fraction of a millimetre on the ground)
+        double insetEast = Math.min((maxEast - minEast) / 4, (world.maxEast - world.minEast) * 1e-9);
+        double insetNorth = Math.min((maxNorth - minNorth) / 4, (world.maxNorth - world.minNorth) * 1e-9);
+        minEast += insetEast;
+        maxEast -= insetEast;
+        minNorth += insetNorth;
+        maxNorth -= insetNorth;
+        Bounds bounds = null;
+        for (double east : new double[] {minEast, maxEast}) {
+            for (double north : new double[] {minNorth, maxNorth}) {
+                LatLon ll = projection.eastNorth2latlon(new EastNorth(east, north));
+                if (ll.isValid()) {
+                    if (bounds == null) {
+                        bounds = new Bounds(ll, false);
+                    } else {
+                        bounds.extend(ll);
+                    }
+                }
+            }
+        }
+        return bounds != null ? bounds : mv.getRealBounds();
+    }
+
+    /**
+     * Measures the distance on screen which corresponds to one grid spacing at the center of the view. The probe
+     * is placed on whichever side of the center stays inside the valid coordinate range, and it is shortened if
+     * the spacing itself does not fit, so that the result is a usable length at every zoom level.
+     * @param mv the map view
+     * @param center the center of the view, on screen
+     * @param at the center of the view
+     * @param spacing the grid spacing, in degrees
+     * @param lon {@code true} to probe along the longitude, {@code false} along the latitude
+     * @return the distance in pixels; 0 if it cannot be measured
+     */
+    private static double probePixels(MapView mv, Point2D center, LatLon at, double spacing, boolean lon) {
+        double max = lon ? 180 : 89;
+        double delta = Math.min(spacing, max);
+        double value = lon ? at.lon() : at.lat();
+        // probe towards the pole resp. the antimeridian, or backwards if that would leave the valid range
+        double probe = value + delta <= max ? value + delta : value - delta;
+        if (probe < -max || probe > max) {
+            return 0;
+        }
+        Point2D p = mv.getPoint2D(lon ? new LatLon(at.lat(), probe) : new LatLon(probe, at.lon()));
+        return center.distance(p) * spacing / delta;
     }
 
     /**
@@ -385,13 +459,35 @@ public class MapGridPaintable extends AbstractMapViewPaintable implements Prefer
             if (lat < world.getMinLat() || lat > world.getMaxLat()) {
                 continue;
             }
-            List<LatLon> line = new ArrayList<>(segments + 1);
-            for (int i = 0; i <= segments; i++) {
-                line.add(new LatLon(lat, LatLon.toIntervalLon(minLon + (maxLon - minLon) * i / segments)));
-            }
-            lines.add(new LatLonGridLine(line, false));
+            addParallel(lines, lat, minLon, maxLon, segments);
         }
         return lines;
+    }
+
+    /**
+     * Adds a parallel running from one longitude to another. A parallel which crosses the antimeridian is added
+     * as two lines, one on each side of it: wrapping the longitudes of a single polyline would instead make it
+     * jump right across the view.
+     * @param lines the list to add to
+     * @param lat the latitude of the parallel
+     * @param minLon the longitude to start at, in [-180, 180]
+     * @param maxLon the longitude to end at, may be larger than 180 if the area crosses the antimeridian
+     * @param segments number of segments of each polyline
+     */
+    private static void addParallel(List<LatLonGridLine> lines, double lat, double minLon, double maxLon, int segments) {
+        if (maxLon > 180) {
+            addParallel(lines, lat, minLon, 180, segments);
+            addParallel(lines, lat, -180, maxLon - 360, segments);
+            return;
+        }
+        if (!(maxLon > minLon)) {
+            return;
+        }
+        List<LatLon> line = new ArrayList<>(segments + 1);
+        for (int i = 0; i <= segments; i++) {
+            line.add(new LatLon(lat, minLon + (maxLon - minLon) * i / segments));
+        }
+        lines.add(new LatLonGridLine(line, false));
     }
 
     @Override
