@@ -5,8 +5,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.IntConsumer;
 import java.util.stream.IntStream;
@@ -36,13 +38,18 @@ import org.openstreetmap.josm.data.osm.Way;
  * (approximated by chords) for sharp turns or when the mitre would overshoot too far.</li>
  * <li>The resulting raw polyline is split at its self-intersections. Every piece is kept only if it lies at
  * (at least) the offset distance from the source path. Pieces which are closer belong to inverted loops
- * ("swallowtails") and are dropped. The remaining pieces are chained; the longest chain is the result.</li>
+ * ("swallowtails") and are dropped. The remaining pieces are chained.</li>
  * </ol>
+ * Where the path crosses itself, or comes back within twice the offset of itself, the offset can consist of
+ * several separate chains (e.g. around a loop which passes under its own approach). All of them are kept, and each
+ * becomes its own way(s). The exception are chains produced only by retraced segments (a path which goes out and
+ * back along the same nodes): seen from such a segment, both sides are "its" side, so they would draw a loop
+ * around the excursion on the far side of the path.
  * All calculations are done in projected coordinates.
  * <p>
  * Contrary to earlier versions the nodes and ways are only created (and added to the data set) by
  * {@link #commit()}, since the number of nodes of the result depends on the offset. Use
- * {@link #getOffsetPoints()} to draw a preview while the offset is changed.
+ * {@link #getOffsetPaths()} to draw a preview while the offset is changed.
  */
 public class ParallelWays {
 
@@ -52,6 +59,8 @@ public class ParallelWays {
     private static final int NO_NODE = -1;
     /** marker for raw segments of the end caps, which are only used to trim the result and are never part of it */
     private static final int CAP = -2;
+    /** maximal distance between the samples of the validity of a piece, as a fraction of the offset */
+    private static final double SAMPLE_SPACING = 0.125;
 
     private final List<Way> sourceWays;
     private final boolean copyTags;
@@ -78,6 +87,8 @@ public class ParallelWays {
     private final boolean[] wayForward;
     /** source way index for each source segment */
     private final int[] segWay;
+    /** whether the path also runs along each source segment in the opposite direction (out and back) */
+    private final boolean[] retraced;
 
     // Spatial index of the source segments (rebuilt for every offset, since the cell size depends on it)
     private double gridCell;
@@ -89,13 +100,31 @@ public class ParallelWays {
     private int[] gridStamp;
     private int gridQuery;
 
-    // Result of the last changeOffset call
-    private List<EastNorth> resultPts = Collections.emptyList();
-    private int[] resultPieceSeg = new int[0];
-    private int[] resultPointNode = new int[0];
-    private boolean resultClosed;
+    // Result of the last changeOffset call, longest path first
+    private List<OffsetPath> results = Collections.emptyList();
 
     private List<Way> ways = Collections.emptyList();
+
+    /** One connected path of the result */
+    private static final class OffsetPath {
+        /** the points; for a ring the first point is not repeated at the end */
+        final List<EastNorth> pts;
+        /** for each piece (from point i to point i + 1, wrapping around for a ring): the source segment */
+        final int[] pieceSeg;
+        /** for each point: the source node it was derived from, or {@link #NO_NODE} */
+        final int[] pointNode;
+        /** for each point: an identifier shared by the points of different paths which are the same point */
+        final int[] pointId;
+        final boolean closed;
+
+        OffsetPath(List<EastNorth> pts, int[] pieceSeg, int[] pointNode, int[] pointId, boolean closed) {
+            this.pts = pts;
+            this.pieceSeg = pieceSeg;
+            this.pointNode = pointNode;
+            this.pointId = pointId;
+            this.closed = closed;
+        }
+    }
 
     /**
      * Constructs a new {@code ParallelWays}.
@@ -221,6 +250,24 @@ public class ParallelWays {
                 segWay[i] = w;
             }
         }
+        retraced = findRetracedSegments();
+    }
+
+    /**
+     * Finds the segments which the path also runs along in the opposite direction, as in a - b - c - b - d.
+     * @return for each segment, whether it is retraced
+     */
+    private boolean[] findRetracedSegments() {
+        int segCount = nodeCount - 1;
+        Set<List<Double>> segments = new HashSet<>(segCount * 2);
+        for (int i = 0; i < segCount; i++) {
+            segments.add(Arrays.asList(px[i], py[i], px[i + 1], py[i + 1]));
+        }
+        boolean[] result = new boolean[segCount];
+        for (int i = 0; i < segCount; i++) {
+            result[i] = segments.contains(Arrays.asList(px[i + 1], py[i + 1], px[i], py[i]));
+        }
+        return result;
     }
 
     /**
@@ -341,13 +388,13 @@ public class ParallelWays {
         if (d == 0 || Double.isNaN(d)) {
             // no offset: the result is a copy (for a ring without the repeated closing node)
             int pointCount = closed ? nodeCount - 1 : nodeCount;
-            resultPts = new ArrayList<>(pointCount);
+            List<EastNorth> pts = new ArrayList<>(pointCount);
             for (int i = 0; i < pointCount; i++) {
-                resultPts.add(new EastNorth(px[i], py[i]));
+                pts.add(new EastNorth(px[i], py[i]));
             }
-            resultPieceSeg = IntStream.range(0, nodeCount - 1).toArray();
-            resultPointNode = IntStream.range(0, pointCount).toArray();
-            resultClosed = closed;
+            int[] indices = IntStream.range(0, pointCount).toArray();
+            results = Collections.singletonList(
+                    new OffsetPath(pts, IntStream.range(0, nodeCount - 1).toArray(), indices, indices, closed));
             return;
         }
         buildGrid(Math.abs(d));
@@ -696,6 +743,7 @@ public class ParallelWays {
         double bridgeTolerance = 2 * r * Math.sin(arcStep / 2);
         double spikeTolerance = 2 * r * (1 - Math.cos(arcStep / 2)) + tolerance;
         List<Chain> chains = new ArrayList<>();
+        ChainIndex ends = new ChainIndex(points, bridgeTolerance, false);
         int pieceCount = pieces.size;
         int startPiece = 0;
         if (closed && anyInvalid) {
@@ -710,56 +758,80 @@ public class ParallelWays {
                 continue;
             }
             int srcSeg = raw.seg[(pieces.rawSeg[p] + 1) % m];
-            Chain chain = findChainEndingAt(chains, pieces.start[p], points, bridgeTolerance);
+            Chain chain = ends.find(pieces.start[p], null);
             if (chain == null) {
                 chain = new Chain(pieces.start[p], spikeTolerance);
                 chains.add(chain);
-            } else if (chain.lastId != pieces.start[p]) {
-                chain.append(pieces.start[p], srcSeg, points);
-            }
-            chain.append(pieces.end[p], srcSeg, points);
-        }
-        // Join chains whose end meets the start of another chain (a ring may also close onto itself)
-        boolean merged = true;
-        while (merged && chains.size() > 1) {
-            merged = false;
-            for (int i = 0; i < chains.size() && !merged; i++) {
-                Chain a = chains.get(i);
-                for (int j = 0; j < chains.size(); j++) {
-                    Chain b = chains.get(j);
-                    int bFirst = b.ids.get(0);
-                    if (a != b && (a.lastId == bFirst || points.distance(a.lastId, bFirst) <= bridgeTolerance)) {
-                        if (a.lastId != bFirst) {
-                            a.append(bFirst, b.segs.get(0), points);
-                        }
-                        a.appendChain(b);
-                        chains.remove(j);
-                        merged = true;
-                        break;
-                    }
+            } else {
+                ends.remove(chain);
+                if (chain.lastId != pieces.start[p]) {
+                    chain.append(pieces.start[p], srcSeg, points);
                 }
             }
+            chain.append(pieces.end[p], srcSeg, points);
+            ends.add(chain);
         }
-        if (chains.isEmpty()) {
-            setEmptyResult();
-            return;
-        }
-        Chain best = chains.get(0);
-        for (Chain ch : chains) {
-            if (ch.length > best.length) {
-                best = ch;
+        // Join chains whose end meets the start of another chain (a ring may also close onto itself)
+        ChainIndex starts = new ChainIndex(points, bridgeTolerance, true);
+        chains.forEach(starts::add);
+        Set<Chain> joined = new HashSet<>();
+        for (Chain a : chains) {
+            if (joined.contains(a)) {
+                continue;
+            }
+            Chain b = starts.find(a.lastId, a);
+            while (b != null) {
+                starts.remove(b);
+                joined.add(b);
+                int bFirst = b.ids.get(0);
+                if (a.lastId != bFirst) {
+                    a.append(bFirst, b.segs.get(0), points);
+                }
+                a.appendChain(b);
+                b = starts.find(a.lastId, a);
             }
         }
-        if (closed && best.lastId != best.ids.get(0) && points.distance(best.lastId, best.ids.get(0)) <= bridgeTolerance) {
-            // close a ring which is open by a small gap only
-            best.append(best.ids.get(0), best.segs.get(best.segs.size() - 1), points);
+        chains.removeIf(joined::contains);
+        // A chain made only of retraced segments goes around an out-and-back excursion of the path: drop it, unless
+        // nothing else is left (the whole path goes out and back)
+        if (chains.stream().anyMatch(ch -> !isRetracedOnly(ch))) {
+            chains.removeIf(this::isRetracedOnly);
         }
+        chains.removeIf(ch -> ch.ids.size() < 2);
+        chains.sort((a, b) -> Double.compare(b.length, a.length));
+        List<OffsetPath> paths = new ArrayList<>(chains.size());
+        for (Chain chain : chains) {
+            if (closed && chain.lastId != chain.ids.get(0) && points.distance(chain.lastId, chain.ids.get(0)) <= bridgeTolerance) {
+                // close a ring which is open by a small gap only
+                chain.append(chain.ids.get(0), chain.segs.get(chain.segs.size() - 1), points);
+            }
+            paths.add(toOffsetPath(chain, raw, points, r));
+        }
+        results = paths;
+    }
 
-        // Convert to the result
-        boolean isRing = closed && best.ids.size() > 2 && best.ids.get(0) == best.lastId;
-        List<Integer> ids = new ArrayList<>(best.ids);
-        List<Integer> segs = new ArrayList<>(best.segs);
-        replaceIntactArcsByMitres(raw, points, ids, segs);
+    /**
+     * Determines if a chain is made only of retraced segments, see {@link #findRetracedSegments()}.
+     * @param chain the chain
+     * @return {@code true} if every piece of the chain is the offset of a retraced segment
+     */
+    private boolean isRetracedOnly(Chain chain) {
+        return chain.segs.stream().allMatch(seg -> seg >= 0 && retraced[seg]);
+    }
+
+    /**
+     * Converts a chain into a path of the result.
+     * @param chain the chain
+     * @param raw the raw polyline
+     * @param points the point table
+     * @param r the offset
+     * @return the path
+     */
+    private OffsetPath toOffsetPath(Chain chain, RawPolyline raw, Points points, double r) {
+        boolean isRing = chain.ids.size() > 2 && chain.ids.get(0) == chain.lastId;
+        List<Integer> ids = new ArrayList<>(chain.ids);
+        List<Integer> segs = new ArrayList<>(chain.segs);
+        replaceIntactArcsByMitres(raw, points, ids, segs, r);
         if (isRing) {
             ids.remove(ids.size() - 1);
             // rotate so that the ring starts at a way boundary
@@ -774,29 +846,27 @@ public class ParallelWays {
             Collections.rotate(ids, -rot);
             Collections.rotate(segs, -rot);
         }
-        resultPts = new ArrayList<>(ids.size());
-        resultPointNode = new int[ids.size()];
+        List<EastNorth> pts = new ArrayList<>(ids.size());
+        int[] pointNode = new int[ids.size()];
+        int[] pointId = new int[ids.size()];
         for (int i = 0; i < ids.size(); i++) {
             int id = ids.get(i);
             double[] pt = points.get(id);
-            resultPts.add(new EastNorth(pt[0], pt[1]));
-            resultPointNode[i] = points.node.get(id);
+            pts.add(new EastNorth(pt[0], pt[1]));
+            pointNode[i] = points.node.get(id);
+            pointId[i] = id;
         }
-        resultPieceSeg = segs.stream().mapToInt(Integer::intValue).toArray();
-        resultClosed = isRing;
+        return new OffsetPath(pts, segs.stream().mapToInt(Integer::intValue).toArray(), pointNode, pointId, isRing);
     }
 
     private void setEmptyResult() {
-        resultPts = Collections.emptyList();
-        resultPieceSeg = new int[0];
-        resultPointNode = new int[0];
-        resultClosed = false;
+        results = Collections.emptyList();
     }
 
     /**
      * Determines the validity of the piece of raw segment {@code i} between two points, and adds the resulting
-     * piece(s). The validity is sampled at both ends and in the middle; if it changes, the transition point is
-     * located and the piece is split there.
+     * piece(s). The validity is sampled at both ends and in between, at most {@link #SAMPLE_SPACING} times the offset
+     * apart; wherever it changes, the transition point is located and the piece is split there.
      */
     private void classify(RawPolyline raw, double r, Points points, Pieces pieces, int i, int sId, int eId) {
         int endPoint = (i + 1) % raw.size;
@@ -808,38 +878,37 @@ public class ParallelWays {
         double[] s = points.get(sId);
         double[] e = points.get(eId);
         double tolerance = r * 1e-7 + 1e-7;
-        boolean vs = isValid(s[0], s[1], r, tolerance, arc);
-        boolean ve = isValid(e[0], e[1], r, tolerance, arc);
-        boolean vm = isValid(s[0] + (e[0] - s[0]) / 2, s[1] + (e[1] - s[1]) / 2, r, tolerance, arc);
-        if (vs == vm && vm == ve) {
-            pieces.add(sId, eId, i, vm);
-            return;
-        }
-        // Transitions very close to an end point are artefacts of the chord approximation (a point where two
-        // chords cross lies inside both circles): the validity of the middle is then used for the whole piece.
-        double snapTolerance = 2 * r * (1 - Math.cos(arcStep / 2)) + tolerance;
         double len = Math.hypot(e[0] - s[0], e[1] - s[1]);
+        // A piece may pass within r of another part of the path somewhere in its middle (e.g. where the path crosses
+        // itself), so sampling its ends and middle is not enough for a long piece. With samples r / 8 apart, only a
+        // stretch which grazes the r-circle by less than about 0.2 % of r can be missed.
+        int intervals = Math.max(2, (int) Math.ceil(len / (r * SAMPLE_SPACING)));
+        // For many samples, gather the source segments near the piece once instead of searching for each sample
+        int[] nearby = intervals == 2 ? null : nearbySegments(Math.min(s[0], e[0]), Math.min(s[1], e[1]),
+                Math.max(s[0], e[0]), Math.max(s[1], e[1]), r);
+        // Transitions very close to an end point are artefacts of the chord approximation (a point where two
+        // chords cross lies inside both circles): the validity of the interior is then used up to the end point.
+        double snapTolerance = 2 * r * (1 - Math.cos(arcStep / 2)) + tolerance;
         int prev = sId;
-        boolean state = vs;
-        if (vs != vm) {
-            double t1 = locateTransition(s, e, 0, 0.5, r, tolerance, arc);
-            if (t1 * len <= snapTolerance) {
-                state = vm;
-            } else {
-                int id = points.add(s[0] + (e[0] - s[0]) * t1, s[1] + (e[1] - s[1]) * t1, NO_NODE);
-                pieces.add(prev, id, i, state);
-                prev = id;
-                state = vm;
+        boolean state = isValid(s[0], s[1], r, tolerance, arc, nearby);
+        boolean sampled = state;
+        double tPrev = 0;
+        for (int k = 1; k <= intervals; k++) {
+            double t = (double) k / intervals;
+            boolean v = isValid(s[0] + (e[0] - s[0]) * t, s[1] + (e[1] - s[1]) * t, r, tolerance, arc, nearby);
+            if (v != sampled) {
+                double tt = locateTransition(s, e, tPrev, t, r, tolerance, arc, nearby);
+                if (tt * len <= snapTolerance) {
+                    state = v;
+                } else if ((1 - tt) * len > snapTolerance) {
+                    int id = points.add(s[0] + (e[0] - s[0]) * tt, s[1] + (e[1] - s[1]) * tt, NO_NODE);
+                    pieces.add(prev, id, i, state);
+                    prev = id;
+                    state = v;
+                }
+                sampled = v;
             }
-        }
-        if (vm != ve) {
-            double t2 = locateTransition(s, e, 0.5, 1, r, tolerance, arc);
-            if ((1 - t2) * len > snapTolerance) {
-                int id = points.add(s[0] + (e[0] - s[0]) * t2, s[1] + (e[1] - s[1]) * t2, NO_NODE);
-                pieces.add(prev, id, i, state);
-                prev = id;
-                state = ve;
-            }
+            tPrev = t;
         }
         pieces.add(prev, eId, i, state);
     }
@@ -848,11 +917,12 @@ public class ParallelWays {
      * Locates (by bisection) the parameter between {@code a} and {@code b} where the validity changes.
      * @return the parameter of the transition
      */
-    private double locateTransition(double[] s, double[] e, double a, double b, double r, double tolerance, int arc) {
-        boolean va = isValid(s[0] + (e[0] - s[0]) * a, s[1] + (e[1] - s[1]) * a, r, tolerance, arc);
+    private double locateTransition(double[] s, double[] e, double a, double b, double r, double tolerance, int arc,
+            int[] nearby) {
+        boolean va = isValid(s[0] + (e[0] - s[0]) * a, s[1] + (e[1] - s[1]) * a, r, tolerance, arc, nearby);
         for (int it = 0; it < 40 && b - a > 1e-12; it++) {
             double mid = (a + b) / 2;
-            boolean vmid = isValid(s[0] + (e[0] - s[0]) * mid, s[1] + (e[1] - s[1]) * mid, r, tolerance, arc);
+            boolean vmid = isValid(s[0] + (e[0] - s[0]) * mid, s[1] + (e[1] - s[1]) * mid, r, tolerance, arc, nearby);
             if (vmid == va) {
                 a = mid;
             } else {
@@ -870,9 +940,10 @@ public class ParallelWays {
      * @param tolerance allowed deficit
      * @param arc if the point lies on an arc chord: the center node of the arc; the point is then projected onto
      * the arc before testing, else {@link #NO_NODE}
+     * @param nearby the source segments which can come within r of the point, or {@code null} to search them all
      * @return {@code true} if the point is valid
      */
-    private boolean isValid(double x, double y, double r, double tolerance, int arc) {
+    private boolean isValid(double x, double y, double r, double tolerance, int arc, int[] nearby) {
         if (arc != NO_NODE) {
             double vx = x - px[arc];
             double vy = y - py[arc];
@@ -882,13 +953,15 @@ public class ParallelWays {
                 y = py[arc] + vy / vl * r;
             }
         }
-        return distanceToSource(x, y, r - tolerance) >= r - tolerance;
+        double dist = nearby == null ? distanceToSource(x, y, r - tolerance) : distanceToSegments(nearby, x, y, r - tolerance);
+        return dist >= r - tolerance;
     }
 
     /**
-     * Replaces arcs which are completely part of the result by a mitre (where the corner is gentle enough).
+     * Replaces arcs which are completely part of the result by a mitre (where the corner is gentle enough, and the
+     * mitre keeps the distance to the rest of the path).
      */
-    private static void replaceIntactArcsByMitres(RawPolyline raw, Points points, List<Integer> ids, List<Integer> segs) {
+    private void replaceIntactArcsByMitres(RawPolyline raw, Points points, List<Integer> ids, List<Integer> segs, double r) {
         int[] arcOfRawPoint = new int[raw.size];
         Arrays.fill(arcOfRawPoint, NO_NODE);
         for (int k = 0; k < raw.arcStart.length; k++) {
@@ -910,7 +983,7 @@ public class ParallelWays {
             for (int j = 1; j <= chords && intact; j++) {
                 intact = ids.get(i + j) == id + j;
             }
-            if (!intact) {
+            if (!intact || !isValidMitre(raw, k, r)) {
                 continue;
             }
             int mitreId = points.add(raw.mitreX[k], raw.mitreY[k], k);
@@ -924,23 +997,102 @@ public class ParallelWays {
     }
 
     /**
-     * Finds the chain ending at (or within the tolerance of) the given point, preferring an exact match.
-     * @return the chain, or {@code null}
+     * Checks whether the mitre at node {@code k} keeps the offset distance to the source path. It sticks out beyond
+     * the arc it replaces, so it may come too close to another part of the path even though the arc does not.
+     * @param raw the raw polyline
+     * @param k the source node of the arc
+     * @param r the offset
+     * @return {@code true} if both legs of the mitre (from the ends of the arc to the mitre point) are valid
      */
-    private static Chain findChainEndingAt(List<Chain> chains, int id, Points points, double tolerance) {
-        Chain near = null;
-        double nearDist = tolerance;
-        for (Chain ch : chains) {
-            if (ch.lastId == id) {
-                return ch;
-            }
-            double dist = points.distance(ch.lastId, id);
-            if (dist <= nearDist) {
-                near = ch;
-                nearDist = dist;
+    private boolean isValidMitre(RawPolyline raw, int k, double r) {
+        double tolerance = r * 1e-7 + 1e-7;
+        for (int end : new int[] {raw.arcStart[k], raw.arcStart[k] + raw.arcChords[k]}) {
+            double dx = raw.mitreX[k] - raw.x[end];
+            double dy = raw.mitreY[k] - raw.y[end];
+            int intervals = Math.max(1, (int) Math.ceil(Math.hypot(dx, dy) / (r * SAMPLE_SPACING)));
+            for (int j = 1; j <= intervals; j++) {
+                double t = (double) j / intervals;
+                if (!isValid(raw.x[end] + dx * t, raw.y[end] + dy * t, r, tolerance, NO_NODE, null)) {
+                    return false;
+                }
             }
         }
-        return near;
+        return true;
+    }
+
+    /**
+     * Spatial index of chains by their first or by their last point, to find the chain which starts or ends at (or
+     * within a tolerance of) a given point. The tolerance is also the cell size, so only the 3x3 cells around the
+     * point need to be searched. A chain must be removed before the indexed point changes, and added again after.
+     */
+    private static final class ChainIndex {
+        private final Map<Long, List<Chain>> cells = new HashMap<>();
+        private final Points points;
+        private final double tolerance;
+        private final boolean byStart;
+
+        ChainIndex(Points points, double tolerance, boolean byStart) {
+            this.points = points;
+            this.tolerance = tolerance;
+            this.byStart = byStart;
+        }
+
+        private int indexed(Chain chain) {
+            return byStart ? chain.ids.get(0) : chain.lastId;
+        }
+
+        private static long key(long col, long row) {
+            return col * 0x9E3779B97F4A7C15L + row;
+        }
+
+        private long keyOf(int id) {
+            double[] pt = points.get(id);
+            return key((long) Math.floor(pt[0] / tolerance), (long) Math.floor(pt[1] / tolerance));
+        }
+
+        void add(Chain chain) {
+            cells.computeIfAbsent(keyOf(indexed(chain)), k -> new ArrayList<>(1)).add(chain);
+        }
+
+        void remove(Chain chain) {
+            List<Chain> list = cells.get(keyOf(indexed(chain)));
+            if (list != null) {
+                list.remove(chain);
+            }
+        }
+
+        /**
+         * Finds the chain whose indexed point is the given point, or else the nearest one within the tolerance.
+         * @param id the point
+         * @param exclude a chain to ignore, may be {@code null}
+         * @return the chain, or {@code null}
+         */
+        Chain find(int id, Chain exclude) {
+            double[] pt = points.get(id);
+            long col = (long) Math.floor(pt[0] / tolerance);
+            long row = (long) Math.floor(pt[1] / tolerance);
+            Chain near = null;
+            double nearDist = tolerance;
+            for (long c = col - 1; c <= col + 1; c++) {
+                for (long r = row - 1; r <= row + 1; r++) {
+                    for (Chain chain : cells.getOrDefault(key(c, r), Collections.emptyList())) {
+                        if (chain == exclude) {
+                            continue;
+                        }
+                        int other = indexed(chain);
+                        if (other == id) {
+                            return chain;
+                        }
+                        double dist = points.distance(other, id);
+                        if (dist <= nearDist) {
+                            near = chain;
+                            nearDist = dist;
+                        }
+                    }
+                }
+            }
+            return near;
+        }
     }
 
     /** A chain of connected valid pieces */
@@ -1104,20 +1256,7 @@ public class ParallelWays {
                     if (x < segMinX[i] - best || x > segMaxX[i] + best || y < segMinY[i] - best || y > segMaxY[i] + best) {
                         continue;
                     }
-                    double rx = x - px[i];
-                    double ry = y - py[i];
-                    double t = rx * dirX[i] + ry * dirY[i];
-                    double dSq;
-                    if (t <= 0) {
-                        dSq = rx * rx + ry * ry;
-                    } else if (t >= segLen[i]) {
-                        double ex = x - px[i + 1];
-                        double ey = y - py[i + 1];
-                        dSq = ex * ex + ey * ey;
-                    } else {
-                        double c = rx * dirY[i] - ry * dirX[i];
-                        dSq = c * c;
-                    }
+                    double dSq = segmentDistanceSq(i, x, y);
                     if (dSq < bestSq) {
                         bestSq = dSq;
                         best = Math.sqrt(dSq);
@@ -1131,26 +1270,113 @@ public class ParallelWays {
         return best;
     }
 
+    /**
+     * Distance from a point to some of the source segments.
+     * @param segments indices of the segments
+     * @param x point
+     * @param y point
+     * @param cutoff the search can stop as soon as a distance below this value is found
+     * @return the distance (or any value below cutoff if such a distance exists)
+     */
+    private double distanceToSegments(int[] segments, double x, double y, double cutoff) {
+        double bestSq = Double.POSITIVE_INFINITY;
+        double cutoffSq = cutoff * cutoff;
+        for (int i : segments) {
+            bestSq = Math.min(bestSq, segmentDistanceSq(i, x, y));
+            if (bestSq < cutoffSq) {
+                break;
+            }
+        }
+        return Math.sqrt(bestSq);
+    }
+
+    /**
+     * Squared distance from a point to a source segment.
+     * @param i segment index
+     * @param x point
+     * @param y point
+     * @return the squared distance
+     */
+    private double segmentDistanceSq(int i, double x, double y) {
+        double rx = x - px[i];
+        double ry = y - py[i];
+        double t = rx * dirX[i] + ry * dirY[i];
+        if (t <= 0) {
+            return rx * rx + ry * ry;
+        } else if (t >= segLen[i]) {
+            double ex = x - px[i + 1];
+            double ey = y - py[i + 1];
+            return ex * ex + ey * ey;
+        }
+        double c = rx * dirY[i] - ry * dirX[i];
+        return c * c;
+    }
+
+    /**
+     * Finds the source segments which may come within the given distance of an area.
+     * @param minX area
+     * @param minY area
+     * @param maxX area
+     * @param maxY area
+     * @param r the distance
+     * @return the indices of the segments whose bounding box comes within r of the area
+     */
+    private int[] nearbySegments(double minX, double minY, double maxX, double maxY, double r) {
+        gridQuery++;
+        List<Integer> found = new ArrayList<>();
+        forEachCell(minX - r, minY - r, maxX + r, maxY + r, c -> {
+            for (int i : gridCells[c]) {
+                if (gridStamp[i] != gridQuery) {
+                    gridStamp[i] = gridQuery;
+                    if (segMaxX[i] >= minX - r && segMinX[i] <= maxX + r && segMaxY[i] >= minY - r && segMinY[i] <= maxY + r) {
+                        found.add(i);
+                    }
+                }
+            }
+        });
+        return found.stream().mapToInt(Integer::intValue).toArray();
+    }
+
     // ---------------------------------------------------------------------------------------------------------
     // Result access and commit
 
     /**
-     * Returns the points of the offset path computed by the last call to {@link #changeOffset(double)}.
+     * Returns the points of the longest offset path computed by the last call to {@link #changeOffset(double)}.
      * For a closed result the first point is not repeated at the end, see {@link #isResultClosed()}.
+     * Use {@link #getOffsetPaths()} for all of them.
      * @return the offset points (projected coordinates), empty if nothing has been computed or nothing remains
      * @since 19624
      */
     public List<EastNorth> getOffsetPoints() {
-        return Collections.unmodifiableList(resultPts);
+        return results.isEmpty() ? Collections.emptyList() : Collections.unmodifiableList(results.get(0).pts);
     }
 
     /**
-     * Determines if the result of the last {@link #changeOffset(double)} call is a closed ring.
+     * Determines if the longest offset path of the last {@link #changeOffset(double)} call is a closed ring.
      * @return {@code true} if the offset path is a closed ring
      * @since 19624
      */
     public boolean isResultClosed() {
-        return resultClosed;
+        return !results.isEmpty() && results.get(0).closed;
+    }
+
+    /**
+     * Returns all offset paths computed by the last call to {@link #changeOffset(double)}, longest first. There is
+     * more than one where the source path crosses itself or comes back within twice the offset of itself. A closed
+     * path (ring) repeats its first point at the end.
+     * @return the offset paths (projected coordinates), empty if nothing has been computed or nothing remains
+     * @since xxx
+     */
+    public List<List<EastNorth>> getOffsetPaths() {
+        List<List<EastNorth>> paths = new ArrayList<>(results.size());
+        for (OffsetPath path : results) {
+            List<EastNorth> pts = new ArrayList<>(path.pts);
+            if (path.closed && !pts.isEmpty()) {
+                pts.add(pts.get(0));
+            }
+            paths.add(Collections.unmodifiableList(pts));
+        }
+        return Collections.unmodifiableList(paths);
     }
 
     /**
@@ -1191,62 +1417,62 @@ public class ParallelWays {
     }
 
     /**
-     * Builds the (not yet added) ways from the last computed offset path.
-     * @return the ways, in the order of the source ways; ways swallowed by the offset are omitted
+     * Builds the (not yet added) ways from the last computed offset paths.
+     * @return the ways, per offset path in the order of the source ways; ways swallowed by the offset are omitted
      */
     private List<Way> buildWays() {
-        int pointCount = resultPts.size();
         List<Way> result = new ArrayList<>(sourceWays.size());
-        if (pointCount < 2) {
-            return result;
-        }
-        int pieceCount = resultPieceSeg.length;
-        Node[] nodes = new Node[pointCount];
-        for (int w = 0; w < sourceWays.size(); w++) {
-            int first = -1;
-            int last = -1;
-            for (int p = 0; p < pieceCount; p++) {
-                if (segWay[resultPieceSeg[p]] == w) {
-                    if (first < 0) {
-                        first = p;
+        // paths which meet at a common point share its node
+        Map<Integer, Node> nodes = new HashMap<>();
+        for (OffsetPath path : results) {
+            int pointCount = path.pts.size();
+            if (pointCount < 2) {
+                continue;
+            }
+            int pieceCount = path.pieceSeg.length;
+            for (int w = 0; w < sourceWays.size(); w++) {
+                int first = -1;
+                int last = -1;
+                for (int p = 0; p < pieceCount; p++) {
+                    if (segWay[path.pieceSeg[p]] == w) {
+                        if (first < 0) {
+                            first = p;
+                        }
+                        last = p;
                     }
-                    last = p;
                 }
-            }
-            if (first < 0) {
-                continue; // way is swallowed by the offset
-            }
-            List<Node> wayNodes = new ArrayList<>(last - first + 2);
-            for (int p = first; p <= last + 1; p++) {
-                int idx = p % pointCount;
-                if (nodes[idx] == null) {
-                    nodes[idx] = makeNode(idx);
+                if (first < 0) {
+                    continue; // way is swallowed by the offset
                 }
-                wayNodes.add(nodes[idx]);
+                List<Node> wayNodes = new ArrayList<>(last - first + 2);
+                for (int p = first; p <= last + 1; p++) {
+                    int idx = p % pointCount;
+                    wayNodes.add(nodes.computeIfAbsent(path.pointId[idx], id -> makeNode(path, idx)));
+                }
+                if (!wayForward[w]) {
+                    Collections.reverse(wayNodes);
+                }
+                Way source = sourceWays.get(w);
+                Way copy = new Way();
+                copy.setNodes(wayNodes);
+                if (copyTags) {
+                    copy.setKeys(source.getKeys());
+                }
+                result.add(copy);
             }
-            if (!wayForward[w]) {
-                Collections.reverse(wayNodes);
-            }
-            Way source = sourceWays.get(w);
-            Way copy = new Way();
-            copy.setNodes(wayNodes);
-            if (copyTags) {
-                copy.setKeys(source.getKeys());
-            }
-            result.add(copy);
         }
         return result;
     }
 
-    private Node makeNode(int idx) {
+    private Node makeNode(OffsetPath path, int idx) {
         Node n;
-        int src = resultPointNode[idx];
+        int src = path.pointNode[idx];
         if (copyTags && src != NO_NODE) {
             n = new Node(sortedNodes.get(src), true);
         } else {
             n = new Node();
         }
-        n.setEastNorth(resultPts.get(idx));
+        n.setEastNorth(path.pts.get(idx));
         return n;
     }
 

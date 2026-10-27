@@ -7,18 +7,25 @@ import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Random;
 
 import org.junit.jupiter.api.Test;
+import org.openstreetmap.josm.TestUtils;
 import org.openstreetmap.josm.data.UndoRedoHandler;
 import org.openstreetmap.josm.data.coor.EastNorth;
 import org.openstreetmap.josm.data.osm.DataSet;
 import org.openstreetmap.josm.data.osm.Node;
+import org.openstreetmap.josm.data.osm.OsmPrimitiveType;
 import org.openstreetmap.josm.data.osm.Way;
 import org.openstreetmap.josm.gui.MainApplication;
 import org.openstreetmap.josm.gui.layer.OsmDataLayer;
+import org.openstreetmap.josm.io.OsmReader;
 import org.openstreetmap.josm.testutils.annotations.Main;
 import org.openstreetmap.josm.testutils.annotations.Projection;
 import org.openstreetmap.josm.tools.Geometry;
@@ -70,6 +77,10 @@ class ParallelWaysTest {
         return best;
     }
 
+    private static double distanceToWays(Collection<Way> ways, EastNorth p) {
+        return ways.stream().mapToDouble(w -> distanceToWay(w, p)).min().orElse(Double.POSITIVE_INFINITY);
+    }
+
     private static double maxSegmentLength(Way w) {
         double max = 0;
         for (int i = 0; i < w.getNodesCount() - 1; i++) {
@@ -112,6 +123,37 @@ class ParallelWaysTest {
             double dist = distanceToWay(source, p);
             assertTrue(dist >= minDist, "vertex " + p + " too close to source: " + dist + " < " + r);
             assertTrue(dist <= r + maxOvershoot + 1e-6, "vertex " + p + " too far from source: " + dist + " > " + r);
+        }
+    }
+
+    /**
+     * Checks that no point of the parallel comes closer to the source than the offset (less the tolerance of the
+     * chord approximation of arcs). Unlike {@link #assertVertexDistances} this also samples the segments, which may
+     * pass another part of the path between two vertices.
+     * @param source the source ways
+     * @param pts the parallel
+     * @param r the (absolute) offset
+     * @param spacing the maximal distance between two samples
+     */
+    private static void assertSegmentDistances(Collection<Way> source, List<EastNorth> pts, double r, double spacing) {
+        double minDist = r * (1 - 2 * (1 - Math.cos(Math.toRadians(ParallelWays.DEFAULT_ARC_STEP_DEGREES / 2)))) * (1 - 1e-6);
+        for (int i = 0; i < pts.size() - 1; i++) {
+            EastNorth a = pts.get(i);
+            EastNorth b = pts.get(i + 1);
+            int n = Math.max(1, (int) Math.ceil(a.distance(b) / spacing));
+            for (int k = 0; k <= n; k++) {
+                EastNorth p = a.interpolate(b, (double) k / n);
+                double dist = distanceToWays(source, p);
+                assertTrue(dist >= minDist, "point " + p + " of segment " + i + " too close to source: " + dist + " < " + r);
+            }
+        }
+    }
+
+    private static void assertPoints(List<EastNorth> actual, double... xy) {
+        assertEquals(xy.length / 2, actual.size(), actual.toString());
+        for (int i = 0; i < actual.size(); i++) {
+            // points where the validity changes are located to within the tolerance of the validity test
+            assertTrue(actual.get(i).equalsEpsilon(new EastNorth(xy[2 * i], xy[2 * i + 1]), 1e-4), i + ": " + actual);
         }
     }
 
@@ -234,7 +276,10 @@ class ParallelWaysTest {
             long millis = (System.nanoTime() - start) / 1_000_000;
             List<EastNorth> pts = pw.getOffsetPoints();
             assertTrue(pts.size() >= 2, "d=" + d);
-            assertVertexDistances(coast, pts, Math.abs(d));
+            for (List<EastNorth> path : pw.getOffsetPaths()) {
+                assertVertexDistances(coast, path, Math.abs(d));
+                assertSegmentDistances(Collections.singletonList(coast), path, Math.abs(d), Math.abs(d) / 2);
+            }
             assertTrue(millis < 5000, "offset took " + millis + " ms");
             System.out.println("ParallelWays: " + count + " nodes, d=" + d + " -> " + pts.size() + " points in " + millis + " ms");
         }
@@ -254,6 +299,8 @@ class ParallelWaysTest {
             List<EastNorth> pts = pw.getOffsetPoints();
             double r = Math.abs(d);
             assertVertexDistances(w, pts, r);
+            // the offset of the excursion itself on the far side (a loop around it) is not wanted
+            assertEquals(1, pw.getOffsetPaths().size(), "d=" + d + ": " + pw.getOffsetPaths());
             assertEquals(new EastNorth(0, d), pts.get(0), "d=" + d);
             assertEquals(new EastNorth(2000, d), pts.get(pts.size() - 1), "d=" + d);
             // every vertex of the main path has the parallel within reach
@@ -273,6 +320,106 @@ class ParallelWaysTest {
                 // the excursion is on the far side: the parallel is a straight line
                 assertTrue(pts.stream().allMatch(p -> Math.abs(p.getY() - d) < 1e-6), "d=" + d + ": " + pts);
             }
+        }
+    }
+
+    /**
+     * A path which only goes out and back along the same nodes still has a parallel, although all of it is the
+     * offset of retraced segments.
+     */
+    @Test
+    void testRetracedOnly() {
+        Way w = way(0, 0, 500, 0, 1000, 0, 500, 0, 0, 0);
+        ParallelWays pw = new ParallelWays(Arrays.asList(w), false, 0);
+        pw.changeOffset(50);
+        assertFalse(pw.getOffsetPaths().isEmpty());
+        assertVertexDistances(w, pw.getOffsetPoints(), 50);
+    }
+
+    /**
+     * A path which crosses itself, like a road looping round and passing under its own approach: on both sides the
+     * parallel consists of separate paths, and all of them are kept, longest first. None of them may cross the road.
+     * Non-regression test for #24983, where only the longest one was kept.
+     */
+    @Test
+    void testSelfCrossingLoop() {
+        // north along x = 0, a clockwise loop to the east, back west along y = 100 under the approach, then north
+        // along x = -300
+        Way w = way(0, -1000, 0, 300, 300, 300, 300, 100, -300, 100, -300, 1300);
+        List<Way> source = Collections.singletonList(w);
+        ParallelWays pw = new ParallelWays(source, false, 0);
+
+        pw.changeOffset(-50); // right: on the inside of the loop
+        List<List<EastNorth>> paths = pw.getOffsetPaths();
+        assertEquals(3, paths.size(), paths.toString());
+        // the westward leg and the road north, starting where the leg comes clear of the approach
+        assertPoints(paths.get(0), -50, 150, -250, 150, -250, 1300);
+        // the approach, up to where it passes under the westward leg
+        assertPoints(paths.get(1), 50, -1000, 50, 50);
+        // the ring inside the loop
+        assertPoints(paths.get(2), 50, 150, 50, 250, 250, 250, 250, 150, 50, 150);
+        assertEquals(paths.get(0), pw.getOffsetPoints());
+        assertFalse(pw.isResultClosed());
+        paths.forEach(path -> assertSegmentDistances(source, path, 50, 5));
+
+        pw.changeOffset(50); // left: on the outside of the loop
+        paths = pw.getOffsetPaths();
+        assertEquals(2, paths.size(), paths.toString());
+        // the approach, then under the loop along the westward leg, and north
+        assertPoints(paths.get(0), -50, -1000, -50, 50, -350, 50, -350, 1300);
+        // around the outside of the loop, from where it comes clear of the approach until it comes back to it
+        assertPoints(paths.get(1), -50, 150, -50, 350, 350, 350, 350, 50, 50, 50);
+        paths.forEach(path -> assertSegmentDistances(source, path, 50, 5));
+    }
+
+    /**
+     * The separate paths of a self-crossing path become separate ways; a ring becomes a closed way.
+     */
+    @Test
+    void testCommitSelfCrossingLoop() {
+        DataSet ds = new DataSet();
+        OsmDataLayer layer = new OsmDataLayer(ds, "ParallelWaysTest", null);
+        MainApplication.getLayerManager().addLayer(layer);
+        try {
+            Way w = way(0, -1000, 0, 300, 300, 300, 300, 100, -300, 100, -300, 1300);
+            w.put("highway", "service");
+            List<Way> result = commitWays(ds, Collections.singletonList(w), 0, -50);
+            assertEquals(3, result.size(), result.toString());
+            assertTrue(result.stream().allMatch(r -> "service".equals(r.get("highway"))));
+            assertFalse(result.get(0).isClosed());
+            assertFalse(result.get(1).isClosed());
+            assertTrue(result.get(2).isClosed());
+            assertEquals(5, result.get(2).getNodesCount());
+        } finally {
+            MainApplication.getLayerManager().removeLayer(layer);
+        }
+    }
+
+    /**
+     * The data of #24983: a road which loops round and passes over its own approach on a bridge. On both sides the
+     * parallel must reach both ends of the selection.
+     * @throws Exception if the data cannot be read
+     */
+    @Test
+    void testTicket24983() throws Exception {
+        DataSet ds;
+        try (InputStream in = TestUtils.getRegressionDataStream(24983, "24983.osm")) {
+            ds = OsmReader.parseDataSet(in, null);
+        }
+        List<Way> source = new ArrayList<>(ds.getWays());
+        ParallelWays pw = new ParallelWays(source, false, 0);
+        // the two ends of the path (way 899611531 at the south, way 899606415 at the north)
+        EastNorth south = ((Node) ds.getPrimitiveById(6765169954L, OsmPrimitiveType.NODE)).getEastNorth();
+        EastNorth north = ((Node) ds.getPrimitiveById(6424304100L, OsmPrimitiveType.NODE)).getEastNorth();
+        double r = 50; // about 30 m at this latitude
+        for (double d : new double[] {r, -r}) {
+            pw.changeOffset(d);
+            List<List<EastNorth>> paths = pw.getOffsetPaths();
+            for (EastNorth end : Arrays.asList(south, north)) {
+                assertTrue(paths.stream().flatMap(List::stream).anyMatch(p -> p.distance(end) <= r * 1.5),
+                        "d=" + d + ": no parallel near " + end);
+            }
+            paths.forEach(path -> assertSegmentDistances(source, path, r, r / 8));
         }
     }
 

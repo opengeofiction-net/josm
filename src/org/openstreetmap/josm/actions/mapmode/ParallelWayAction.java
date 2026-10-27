@@ -677,18 +677,16 @@ public class ParallelWayAction extends MapMode implements ModifierExListener {
 
                 // Preview of the parallel way(s)
                 if (pWays != null) {
-                    List<EastNorth> pts = pWays.getOffsetPoints();
-                    if (pts.size() > 1) {
-                        g.setStroke(PREVIEW_STROKE.get());
-                        line = new MapViewPath(mv);
-                        line.moveTo(pts.get(0));
-                        for (int i = 1; i < pts.size(); i++) {
-                            line.lineTo(pts.get(i));
+                    g.setStroke(PREVIEW_STROKE.get());
+                    for (List<EastNorth> pts : pWays.getOffsetPaths()) {
+                        if (pts.size() > 1) {
+                            line = new MapViewPath(mv);
+                            line.moveTo(pts.get(0));
+                            for (int i = 1; i < pts.size(); i++) {
+                                line.lineTo(pts.get(i));
+                            }
+                            g.draw(line.computeClippedLine(g.getStroke()));
                         }
-                        if (pWays.isResultClosed()) {
-                            line.lineTo(pts.get(0));
-                        }
-                        g.draw(line.computeClippedLine(g.getStroke()));
                     }
                 }
             }
