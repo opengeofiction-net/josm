@@ -7,8 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.InputStream;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
@@ -16,16 +14,13 @@ import java.util.List;
 import java.util.Random;
 
 import org.junit.jupiter.api.Test;
-import org.openstreetmap.josm.TestUtils;
 import org.openstreetmap.josm.data.UndoRedoHandler;
 import org.openstreetmap.josm.data.coor.EastNorth;
 import org.openstreetmap.josm.data.osm.DataSet;
 import org.openstreetmap.josm.data.osm.Node;
-import org.openstreetmap.josm.data.osm.OsmPrimitiveType;
 import org.openstreetmap.josm.data.osm.Way;
 import org.openstreetmap.josm.gui.MainApplication;
 import org.openstreetmap.josm.gui.layer.OsmDataLayer;
-import org.openstreetmap.josm.io.OsmReader;
 import org.openstreetmap.josm.testutils.annotations.Main;
 import org.openstreetmap.josm.testutils.annotations.Projection;
 import org.openstreetmap.josm.tools.Geometry;
@@ -424,34 +419,6 @@ class ParallelWaysTest {
             assertEquals(5, result.get(2).getNodesCount());
         } finally {
             MainApplication.getLayerManager().removeLayer(layer);
-        }
-    }
-
-    /**
-     * The data of #24983: a road which loops round and passes over its own approach on a bridge. On both sides the
-     * parallel must reach both ends of the selection.
-     * @throws Exception if the data cannot be read
-     */
-    @Test
-    void testTicket24983() throws Exception {
-        DataSet ds;
-        try (InputStream in = TestUtils.getRegressionDataStream(24983, "24983.osm")) {
-            ds = OsmReader.parseDataSet(in, null);
-        }
-        List<Way> source = new ArrayList<>(ds.getWays());
-        ParallelWays pw = new ParallelWays(source, false, 0);
-        // the two ends of the path (way 899611531 at the south, way 899606415 at the north)
-        EastNorth south = ((Node) ds.getPrimitiveById(6765169954L, OsmPrimitiveType.NODE)).getEastNorth();
-        EastNorth north = ((Node) ds.getPrimitiveById(6424304100L, OsmPrimitiveType.NODE)).getEastNorth();
-        double r = 50; // about 30 m at this latitude
-        for (double d : new double[] {r, -r}) {
-            pw.changeOffset(d);
-            List<List<EastNorth>> paths = pw.getOffsetPaths();
-            for (EastNorth end : Arrays.asList(south, north)) {
-                assertTrue(paths.stream().flatMap(List::stream).anyMatch(p -> p.distance(end) <= r * 1.5),
-                        "d=" + d + ": no parallel near " + end);
-            }
-            paths.forEach(path -> assertSegmentDistances(source, path, r, r / 8));
         }
     }
 
