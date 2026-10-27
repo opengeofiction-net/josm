@@ -801,9 +801,10 @@ public class ParallelWays {
         chains.sort((a, b) -> Double.compare(b.length, a.length));
         List<OffsetPath> paths = new ArrayList<>(chains.size());
         for (Chain chain : chains) {
-            if (chain.lastId != chain.ids.get(0) && points.distance(chain.lastId, chain.ids.get(0)) <= bridgeTolerance) {
+            if (chain.ids.size() > 2 && chain.lastId != chain.ids.get(0)
+                    && points.distance(chain.lastId, chain.ids.get(0)) <= bridgeTolerance) {
                 // close a ring which is open by a small gap only (also for an open path, around e.g. a pocket of sea
-                // which is further than the offset from the coast)
+                // which is further than the offset from the coast); a piece which is merely short is not a ring
                 chain.append(chain.ids.get(0), chain.segs.get(chain.segs.size() - 1), points);
             }
             paths.add(toOffsetPath(chain, raw, points, r));

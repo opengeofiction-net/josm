@@ -272,6 +272,7 @@ class ParallelWaysTest {
             List<EastNorth> pts = pw.getOffsetPoints();
             assertTrue(pts.size() >= 2, "d=" + d);
             for (List<EastNorth> path : pw.getOffsetPaths()) {
+                assertTrue(path.size() >= 2, "d=" + d + ": degenerate path " + path);
                 assertVertexDistances(coast, path, Math.abs(d));
                 assertSegmentDistances(Collections.singletonList(coast), path, Math.abs(d), Math.abs(d) / 2);
             }
