@@ -743,7 +743,6 @@ public class ParallelWays {
         double bridgeTolerance = 2 * r * Math.sin(arcStep / 2);
         double spikeTolerance = 2 * r * (1 - Math.cos(arcStep / 2)) + tolerance;
         List<Chain> chains = new ArrayList<>();
-        ChainIndex ends = new ChainIndex(points, bridgeTolerance, false);
         int pieceCount = pieces.size;
         int startPiece = 0;
         if (closed && anyInvalid) {
@@ -758,40 +757,41 @@ public class ParallelWays {
                 continue;
             }
             int srcSeg = raw.seg[(pieces.rawSeg[p] + 1) % m];
-            Chain chain = ends.find(pieces.start[p], null);
+            Chain chain = findChainEndingAt(chains, pieces.start[p], points, bridgeTolerance);
             if (chain == null) {
                 chain = new Chain(pieces.start[p], spikeTolerance);
                 chains.add(chain);
-            } else {
-                ends.remove(chain);
-                if (chain.lastId != pieces.start[p]) {
-                    chain.append(pieces.start[p], srcSeg, points);
-                }
+            } else if (chain.lastId != pieces.start[p]) {
+                chain.append(pieces.start[p], srcSeg, points);
             }
             chain.append(pieces.end[p], srcSeg, points);
-            ends.add(chain);
         }
         // Join chains whose end meets the start of another chain (a ring may also close onto itself)
-        ChainIndex starts = new ChainIndex(points, bridgeTolerance, true);
-        chains.forEach(starts::add);
-        Set<Chain> joined = new HashSet<>();
-        for (Chain a : chains) {
-            if (joined.contains(a)) {
-                continue;
-            }
-            Chain b = starts.find(a.lastId, a);
-            while (b != null) {
-                starts.remove(b);
-                joined.add(b);
-                int bFirst = b.ids.get(0);
-                if (a.lastId != bFirst) {
-                    a.append(bFirst, b.segs.get(0), points);
+        // (each chain is extended as far as it goes before moving on: starts never reappear, so there is no need to
+        // look at a chain again)
+        for (int i = 0; i < chains.size(); i++) {
+            Chain a = chains.get(i);
+            boolean merged = true;
+            while (merged) {
+                merged = false;
+                for (int j = 0; j < chains.size(); j++) {
+                    Chain b = chains.get(j);
+                    int bFirst = b.ids.get(0);
+                    if (a != b && (a.lastId == bFirst || points.distance(a.lastId, bFirst) <= bridgeTolerance)) {
+                        if (a.lastId != bFirst) {
+                            a.append(bFirst, b.segs.get(0), points);
+                        }
+                        a.appendChain(b);
+                        chains.remove(j);
+                        if (j < i) {
+                            i--;
+                        }
+                        merged = true;
+                        break;
+                    }
                 }
-                a.appendChain(b);
-                b = starts.find(a.lastId, a);
             }
         }
-        chains.removeIf(joined::contains);
         // A chain made only of retraced segments goes around an out-and-back excursion of the path: drop it, unless
         // nothing else is left (the whole path goes out and back)
         if (chains.stream().anyMatch(ch -> !isRetracedOnly(ch))) {
@@ -801,8 +801,9 @@ public class ParallelWays {
         chains.sort((a, b) -> Double.compare(b.length, a.length));
         List<OffsetPath> paths = new ArrayList<>(chains.size());
         for (Chain chain : chains) {
-            if (closed && chain.lastId != chain.ids.get(0) && points.distance(chain.lastId, chain.ids.get(0)) <= bridgeTolerance) {
-                // close a ring which is open by a small gap only
+            if (chain.lastId != chain.ids.get(0) && points.distance(chain.lastId, chain.ids.get(0)) <= bridgeTolerance) {
+                // close a ring which is open by a small gap only (also for an open path, around e.g. a pocket of sea
+                // which is further than the offset from the coast)
                 chain.append(chain.ids.get(0), chain.segs.get(chain.segs.size() - 1), points);
             }
             paths.add(toOffsetPath(chain, raw, points, r));
@@ -1021,78 +1022,23 @@ public class ParallelWays {
     }
 
     /**
-     * Spatial index of chains by their first or by their last point, to find the chain which starts or ends at (or
-     * within a tolerance of) a given point. The tolerance is also the cell size, so only the 3x3 cells around the
-     * point need to be searched. A chain must be removed before the indexed point changes, and added again after.
+     * Finds the chain ending at (or within the tolerance of) the given point, preferring an exact match.
+     * @return the chain, or {@code null}
      */
-    private static final class ChainIndex {
-        private final Map<Long, List<Chain>> cells = new HashMap<>();
-        private final Points points;
-        private final double tolerance;
-        private final boolean byStart;
-
-        ChainIndex(Points points, double tolerance, boolean byStart) {
-            this.points = points;
-            this.tolerance = tolerance;
-            this.byStart = byStart;
-        }
-
-        private int indexed(Chain chain) {
-            return byStart ? chain.ids.get(0) : chain.lastId;
-        }
-
-        private static long key(long col, long row) {
-            return col * 0x9E3779B97F4A7C15L + row;
-        }
-
-        private long keyOf(int id) {
-            double[] pt = points.get(id);
-            return key((long) Math.floor(pt[0] / tolerance), (long) Math.floor(pt[1] / tolerance));
-        }
-
-        void add(Chain chain) {
-            cells.computeIfAbsent(keyOf(indexed(chain)), k -> new ArrayList<>(1)).add(chain);
-        }
-
-        void remove(Chain chain) {
-            List<Chain> list = cells.get(keyOf(indexed(chain)));
-            if (list != null) {
-                list.remove(chain);
+    private static Chain findChainEndingAt(List<Chain> chains, int id, Points points, double tolerance) {
+        Chain near = null;
+        double nearDist = tolerance;
+        for (Chain ch : chains) {
+            if (ch.lastId == id) {
+                return ch;
+            }
+            double dist = points.distance(ch.lastId, id);
+            if (dist <= nearDist) {
+                near = ch;
+                nearDist = dist;
             }
         }
-
-        /**
-         * Finds the chain whose indexed point is the given point, or else the nearest one within the tolerance.
-         * @param id the point
-         * @param exclude a chain to ignore, may be {@code null}
-         * @return the chain, or {@code null}
-         */
-        Chain find(int id, Chain exclude) {
-            double[] pt = points.get(id);
-            long col = (long) Math.floor(pt[0] / tolerance);
-            long row = (long) Math.floor(pt[1] / tolerance);
-            Chain near = null;
-            double nearDist = tolerance;
-            for (long c = col - 1; c <= col + 1; c++) {
-                for (long r = row - 1; r <= row + 1; r++) {
-                    for (Chain chain : cells.getOrDefault(key(c, r), Collections.emptyList())) {
-                        if (chain == exclude) {
-                            continue;
-                        }
-                        int other = indexed(chain);
-                        if (other == id) {
-                            return chain;
-                        }
-                        double dist = points.distance(other, id);
-                        if (dist <= nearDist) {
-                            near = chain;
-                            nearDist = dist;
-                        }
-                    }
-                }
-            }
-            return near;
-        }
+        return near;
     }
 
     /** A chain of connected valid pieces */

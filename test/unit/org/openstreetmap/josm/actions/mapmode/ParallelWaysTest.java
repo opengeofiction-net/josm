@@ -373,6 +373,38 @@ class ParallelWaysTest {
     }
 
     /**
+     * A bay with a mouth narrower than twice the offset: the water further than the offset from the shore is an
+     * enclosed pocket, so its parallel is a ring, although the source path is open. At the mouth the ring passes the
+     * two ends of the path, whose round caps are never part of the result: the small gap they leave is closed.
+     */
+    @Test
+    void testBayPocketRing() {
+        // counter clockwise around the bay (water on the left) with wavy shores, leaving a mouth at angle 0
+        int steps = 120;
+        double mouth = 0.15;
+        double[] xy = new double[2 * (steps + 1)];
+        for (int i = 0; i <= steps; i++) {
+            double a = mouth + (2 * Math.PI - 2 * mouth) * i / steps;
+            double rad = 1000 + 150 * Math.cos(5 * a);
+            xy[2 * i] = rad * Math.cos(a);
+            xy[2 * i + 1] = rad * Math.sin(a);
+        }
+        Way w = way(xy);
+        ParallelWays pw = new ParallelWays(Arrays.asList(w), false, 0);
+        double r = 250;
+        pw.changeOffset(r);
+        List<List<EastNorth>> paths = pw.getOffsetPaths();
+        assertFalse(paths.isEmpty());
+        for (List<EastNorth> path : paths) {
+            // a closed path repeats its first point; an open one must not end just short of its start
+            double gap = path.get(0).distance(path.get(path.size() - 1));
+            assertTrue(gap == 0 || gap > r, "path open by a gap of " + gap + ": " + path);
+            assertSegmentDistances(Collections.singletonList(w), path, r, r / 8);
+        }
+        assertTrue(paths.stream().anyMatch(path -> path.size() > 2 && path.get(0).equals(path.get(path.size() - 1))), paths.toString());
+    }
+
+    /**
      * The separate paths of a self-crossing path become separate ways; a ring becomes a closed way.
      */
     @Test
