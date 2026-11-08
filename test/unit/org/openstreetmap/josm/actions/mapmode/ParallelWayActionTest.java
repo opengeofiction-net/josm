@@ -4,6 +4,8 @@ package org.openstreetmap.josm.actions.mapmode;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import org.awaitility.Awaitility;
+import org.awaitility.Durations;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.openstreetmap.josm.TestUtils;
@@ -126,6 +128,36 @@ class ParallelWayActionTest {
         this.dataSet.setSelected(w1, w2);
         MapModeUtils.dragFromTo(new LatLon(0, 0.00005), new LatLon(-0.00005, 0.00005));
         assertEquals(5, this.dataSet.getWays().size(), this.dataSet.getWays().toString());
+    }
+
+    /**
+     * A drag whose mouse release was lost is dropped by the next press, which then starts a new drag.
+     * <p>
+     * Non-regression test for <a href="https://josm.openstreetmap.de/ticket/25012">#25012</a>: the press cleared the
+     * offset path but left the mode at dragging, so the next drag event threw a {@link NullPointerException}.
+     */
+    @Test
+    void testNonRegression25012() {
+        Node a = new Node(LatLon.ZERO);
+        Node b = new Node(new LatLon(0, 0.0001));
+        Way w = new Way();
+        w.addNode(a);
+        w.addNode(b);
+        this.dataSet.addPrimitive(a);
+        this.dataSet.addPrimitive(b);
+        this.dataSet.addPrimitive(w);
+        this.map.selectMapMode(mapMode);
+
+        // a drag whose release never arrives, e.g. because the focus moved to another application
+        mapMode.mousePressed(MapModeUtils.mouseClickAt(new LatLon(0, 0.00005)));
+        Awaitility.await().pollDelay(Durations.FIVE_HUNDRED_MILLISECONDS).until(() -> true);
+        mapMode.mouseDragged(MapModeUtils.mouseClickAt(new LatLon(0, 0.00005)));
+        mapMode.mouseDragged(MapModeUtils.mouseClickAt(new LatLon(0.00005, 0.00005)));
+        assertEquals(3, this.dataSet.allPrimitives().size(), "nothing is created before the release");
+
+        MapModeUtils.dragFromTo(new LatLon(0, 0.00005), new LatLon(-0.00005, 0.00005));
+        assertEquals(2, this.dataSet.getWays().size(), this.dataSet.getWays().toString());
+        assertEquals(6, this.dataSet.allPrimitives().size());
     }
 
     /**

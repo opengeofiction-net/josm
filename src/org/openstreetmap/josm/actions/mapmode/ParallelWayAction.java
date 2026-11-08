@@ -281,6 +281,15 @@ public class ParallelWayAction extends MapMode implements ModifierExListener {
         if (e.getButton() != MouseEvent.BUTTON1)
             return;
 
+        // #25012: the release ending the previous drag never arrived (e.g. the focus moved to another application
+        // during the drag), so nothing was committed - drop that drag and start afresh
+        if (mode == Mode.DRAGGING) {
+            pWays = null;
+            setMode(Mode.NORMAL);
+            resetMouseTrackingState();
+            temporaryLayer.invalidate();
+        }
+
         if (!sanityCheck())
             return;
 
