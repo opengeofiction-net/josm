@@ -4,6 +4,8 @@ package org.openstreetmap.josm.actions.mapmode;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.awt.event.WindowFocusListener;
+
 import org.awaitility.Awaitility;
 import org.awaitility.Durations;
 import org.junit.jupiter.api.BeforeEach;
@@ -157,6 +159,45 @@ class ParallelWayActionTest {
 
         MapModeUtils.dragFromTo(new LatLon(0, 0.00005), new LatLon(-0.00005, 0.00005));
         assertEquals(2, this.dataSet.getWays().size(), this.dataSet.getWays().toString());
+        assertEquals(6, this.dataSet.allPrimitives().size());
+    }
+
+    /**
+     * Losing the focus cancels the drag in progress, and the late release does not create or select anything.
+     * <p>
+     * Non-regression test for <a href="https://josm.openstreetmap.de/ticket/25012">#25012</a>: the preview stayed on
+     * screen until the next click.
+     * @throws ReflectiveOperationException if the private fields cannot be accessed
+     */
+    @Test
+    void testFocusLostCancelsDrag25012() throws ReflectiveOperationException {
+        Node a = new Node(LatLon.ZERO);
+        Node b = new Node(new LatLon(0, 0.0001));
+        Way w = new Way();
+        w.addNode(a);
+        w.addNode(b);
+        this.dataSet.addPrimitive(a);
+        this.dataSet.addPrimitive(b);
+        this.dataSet.addPrimitive(w);
+        this.map.selectMapMode(mapMode);
+
+        mapMode.mousePressed(MapModeUtils.mouseClickAt(new LatLon(0, 0.00005)));
+        Awaitility.await().pollDelay(Durations.FIVE_HUNDRED_MILLISECONDS).until(() -> true);
+        mapMode.mouseDragged(MapModeUtils.mouseClickAt(new LatLon(0, 0.00005)));
+        mapMode.mouseDragged(MapModeUtils.mouseClickAt(new LatLon(0.00005, 0.00005)));
+        assertEquals(Mode.DRAGGING, TestUtils.getPrivateField(mapMode, "mode"));
+
+        ((WindowFocusListener) TestUtils.getPrivateField(mapMode, "focusListener")).windowLostFocus(null);
+        assertEquals(Mode.NORMAL, TestUtils.getPrivateField(mapMode, "mode"), "the preview is still drawn");
+
+        // the release arrives later, e.g. on a platform where it goes to the window of the press anyway, here back
+        // on the way, where a click would select it
+        this.dataSet.clearSelection();
+        mapMode.mouseReleased(MapModeUtils.mouseClickAt(new LatLon(0, 0.00005)));
+        assertEquals(3, this.dataSet.allPrimitives().size(), "the cancelled drag has been committed");
+        assertTrue(this.dataSet.getSelected().isEmpty(), "the release has been taken as a click");
+
+        MapModeUtils.dragFromTo(new LatLon(0, 0.00005), new LatLon(-0.00005, 0.00005));
         assertEquals(6, this.dataSet.allPrimitives().size());
     }
 

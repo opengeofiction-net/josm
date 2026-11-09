@@ -12,6 +12,9 @@ import java.awt.Graphics2D;
 import java.awt.Point;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseEvent;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
+import java.awt.event.WindowFocusListener;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -146,6 +149,14 @@ public class ParallelWayAction extends MapMode implements ModifierExListener {
 
     private final ParallelWayLayer temporaryLayer = new ParallelWayLayer();
 
+    /** #25012: a drag cannot continue once JOSM loses the focus, as the mouse release may go to another window */
+    private final WindowFocusListener focusListener = new WindowAdapter() {
+        @Override
+        public void windowLostFocus(WindowEvent e) {
+            cancelDrag();
+        }
+    };
+
     /**
      * Constructs a new {@code ParallelWayAction}.
      * @param mapFrame Map frame
@@ -175,6 +186,9 @@ public class ParallelWayAction extends MapMode implements ModifierExListener {
 
         // Needed to update the mouse cursor if modifiers are changed when the mouse is motionless
         MainApplication.getMap().keyDetector.addModifierExListener(this);
+        if (MainApplication.getMainFrame() != null) {
+            MainApplication.getMainFrame().addWindowFocusListener(focusListener);
+        }
         sourceWays = new LinkedHashSet<>(getLayerManager().getEditDataSet().getSelectedWays());
         for (Way w : sourceWays) {
             w.setHighlighted(true);
@@ -190,6 +204,9 @@ public class ParallelWayAction extends MapMode implements ModifierExListener {
         MapFrame map = MainApplication.getMap();
         map.statusLine.setDist(-1);
         map.keyDetector.removeModifierExListener(this);
+        if (MainApplication.getMainFrame() != null) {
+            MainApplication.getMainFrame().removeWindowFocusListener(focusListener);
+        }
         removeWayHighlighting(sourceWays);
         pWays = null;
         sourceWays = null;
@@ -281,14 +298,8 @@ public class ParallelWayAction extends MapMode implements ModifierExListener {
         if (e.getButton() != MouseEvent.BUTTON1)
             return;
 
-        // #25012: the release ending the previous drag never arrived (e.g. the focus moved to another application
-        // during the drag), so nothing was committed - drop that drag and start afresh
-        if (mode == Mode.DRAGGING) {
-            pWays = null;
-            setMode(Mode.NORMAL);
-            resetMouseTrackingState();
-            temporaryLayer.invalidate();
-        }
+        // #25012: the release ending the previous drag never arrived, drop that drag and start afresh
+        cancelDrag();
 
         if (!sanityCheck())
             return;
@@ -314,7 +325,8 @@ public class ParallelWayAction extends MapMode implements ModifierExListener {
     public void mouseReleased(MouseEvent e) {
         updateModifiersState(e.getModifiersEx());
         // Other buttons are off limit, but we still get events.
-        if (e.getButton() != MouseEvent.BUTTON1)
+        // Ignore the release of a press that was not accepted or whose drag was cancelled.
+        if (e.getButton() != MouseEvent.BUTTON1 || !mouseIsDown)
             return;
 
         if (!mouseHasBeenDragged) {
@@ -522,6 +534,21 @@ public class ParallelWayAction extends MapMode implements ModifierExListener {
             w.setHighlighted(false);
         }
         sourceWays.clear();
+    }
+
+    /**
+     * Cancels the drag in progress, if any. Nothing has been changed yet, since the parallel ways are only created
+     * when the mouse is released.
+     */
+    private void cancelDrag() {
+        if (mode == Mode.DRAGGING) {
+            pWays = null;
+            helperSegment = null;
+            setMode(Mode.NORMAL);
+            MainApplication.getMap().statusLine.setDist(-1);
+            temporaryLayer.invalidate();
+        }
+        resetMouseTrackingState();
     }
 
     private void resetMouseTrackingState() {
