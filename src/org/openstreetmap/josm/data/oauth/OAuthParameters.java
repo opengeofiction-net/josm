@@ -178,8 +178,9 @@ public final class OAuthParameters {
         HttpClient client = null;
         try {
             final URI apiURI = new URI(apiUrl);
-            final URL rfc8414URL = new URI(apiURI.getScheme(), apiURI.getHost(),
-                    "/.well-known/oauth-authorization-server", null).toURL();
+            // keep the port, as for a development server on http://localhost:3000
+            final URL rfc8414URL = new URI(apiURI.getScheme(), null, apiURI.getHost(), apiURI.getPort(),
+                    "/.well-known/oauth-authorization-server", null, null).toURL();
             client = HttpClient.create(rfc8414URL);
             HttpClient.Response response = client.connect();
             if (response.getResponseCode() == 200) {

@@ -17,6 +17,10 @@ import org.openstreetmap.josm.spi.preferences.Config;
 import org.openstreetmap.josm.testutils.annotations.BasicPreferences;
 import org.openstreetmap.josm.tools.Logging;
 
+import com.github.tomakehurst.wiremock.WireMockServer;
+import com.github.tomakehurst.wiremock.client.WireMock;
+import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
+
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import nl.jqno.equalsverifier.EqualsVerifier;
 
@@ -175,6 +179,27 @@ class OAuthParametersTest {
         final IOAuthParameters osm = OAuthParameters.createDefault("https://api.openstreetmap.org/api", OAuthVersion.OAuth20);
         assertEquals("https://www.openstreetmap.org/oauth2/authorize", osm.getAuthorizationUrl());
         assertEquals("https://www.openstreetmap.org/oauth2/token", osm.getAccessTokenUrl());
+    }
+
+    /**
+     * The OAuth metadata (RFC 8414) of a server is looked up on its port, such as that of a development server on
+     * http://localhost:3000. Non-regression test: the port was dropped, so the metadata was not found.
+     */
+    @Test
+    void testDiscoveryUsesThePort() {
+        final WireMockServer server = new WireMockServer(WireMockConfiguration.options().dynamicPort());
+        server.start();
+        try {
+            final String website = "http://localhost:" + server.port();
+            server.stubFor(WireMock.get(WireMock.urlEqualTo("/.well-known/oauth-authorization-server")).willReturn(WireMock.okJson(
+                    "{\"authorization_endpoint\": \"" + website + "/discovered/authorize\","
+                    + " \"token_endpoint\": \"" + website + "/discovered/token\"}")));
+            final IOAuthParameters parameters = OAuthParameters.createDefault(website + "/api", OAuthVersion.OAuth20);
+            assertEquals(website + "/discovered/authorize", parameters.getAuthorizationUrl());
+            assertEquals(website + "/discovered/token", parameters.getAccessTokenUrl());
+        } finally {
+            server.stop();
+        }
     }
 
     /**
