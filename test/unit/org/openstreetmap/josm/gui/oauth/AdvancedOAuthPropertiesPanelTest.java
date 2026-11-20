@@ -14,10 +14,12 @@ import java.util.concurrent.ExecutionException;
 import javax.swing.JCheckBox;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
+import javax.swing.JTextField;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.openstreetmap.josm.data.oauth.IOAuthParameters;
 import org.openstreetmap.josm.data.oauth.OAuth20Parameters;
 import org.openstreetmap.josm.data.oauth.OAuthParameters;
 import org.openstreetmap.josm.data.oauth.OAuthVersion;
@@ -149,6 +151,35 @@ class AdvancedOAuthPropertiesPanelTest {
                 assertTrue(toolTip.contains(scope.name()), () -> name + " does not list " + scope + ": " + toolTip);
             }
         }
+    }
+
+    /**
+     * White space copied along with the values does not become part of them. Non-regression test: a client secret
+     * pasted with a trailing space was sent as it was, and the server refused the token request with
+     * "invalid_client".
+     * @throws ReflectiveOperationException if a field cannot be accessed
+     * @throws ExecutionException if waiting for the worker fails
+     * @throws InterruptedException if waiting for the worker is interrupted
+     */
+    @Test
+    void testEnteredValuesAreTrimmed() throws ReflectiveOperationException, ExecutionException, InterruptedException {
+        final AdvancedOAuthPropertiesPanel panel = new AdvancedOAuthPropertiesPanel(OAuthVersion.OAuth20);
+        panel.initialize(THIRD_PARTY);
+        waitForWorkerAndEdt();
+        ((JCheckBox) getField(panel, "cbUseDefaults")).setSelected(false);
+        ((JTextField) getField(panel, "tfClientId")).setText(" a-client-id\t");
+        ((JTextField) getField(panel, "tfClientSecret")).setText("a-client-secret ");
+        ((JTextField) getField(panel, "tfRedirectUri")).setText(" http://127.0.0.1:8111/oauth_authorization");
+        ((JTextField) getField(panel, "tfAccessTokenURL")).setText("https://nonprod-mapops.example.org/oauth2/token\n");
+        ((JTextField) getField(panel, "tfAuthoriseURL")).setText("  https://nonprod-mapops.example.org/oauth2/authorize");
+
+        final IOAuthParameters parameters = panel.getAdvancedParameters();
+        assertEquals("a-client-id", parameters.getClientId());
+        assertEquals("a-client-secret", parameters.getClientSecret());
+        assertEquals("http://127.0.0.1:8111/oauth_authorization", parameters.getRedirectUri());
+        assertEquals("https://nonprod-mapops.example.org/oauth2/token", parameters.getAccessTokenUrl());
+        assertEquals("https://nonprod-mapops.example.org/oauth2/authorize", parameters.getAuthorizationUrl());
+        assertEquals("a-client-id", panel.getEnteredClientId());
     }
 
     private static JComponent getField(AdvancedOAuthPropertiesPanel panel, String name) throws ReflectiveOperationException {

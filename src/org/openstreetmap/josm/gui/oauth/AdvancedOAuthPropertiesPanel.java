@@ -260,11 +260,11 @@ public class AdvancedOAuthPropertiesPanel extends VerticallyScrollablePanel {
 
     /**
      * Get the client id as entered in the panel, without falling back to the defaults.
-     * @return the client id field's text
+     * @return the client id field's text, without surrounding white space
      * @since 19627
      */
     public String getEnteredClientId() {
-        return tfClientId.getText();
+        return tfClientId.getText().trim();
     }
 
     protected boolean hasCustomSettings() {
@@ -355,19 +355,20 @@ public class AdvancedOAuthPropertiesPanel extends VerticallyScrollablePanel {
     /**
      * Replies the OAuth parameters as currently displayed in this properties panel: the default ones are shown when
      * "use default settings" is ticked, as far as they are known yet. Unlike {@link #getAdvancedParameters()}, this
-     * never makes a network request, and some of the parameters may be empty.
+     * never makes a network request, and some of the parameters may be empty. White space around the values, which
+     * is easily copied along with them, is left out: a client secret with a trailing space is refused by the server.
      *
      * @return the OAuth parameters
      * @since xxx
      */
     public OAuth20Parameters getDisplayedParameters() {
         return new OAuth20Parameters(
-                tfClientId.getText(),
-                tfClientSecret.getText(),
-                tfAccessTokenURL.getText(),
-                tfAuthoriseURL.getText(),
+                tfClientId.getText().trim(),
+                tfClientSecret.getText().trim(),
+                tfAccessTokenURL.getText().trim(),
+                tfAuthoriseURL.getText().trim(),
                 apiUrl,
-                tfRedirectUri.getText()
+                tfRedirectUri.getText().trim()
                 );
     }
 
