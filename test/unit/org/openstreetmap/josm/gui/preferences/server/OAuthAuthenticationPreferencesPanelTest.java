@@ -15,6 +15,7 @@ import java.lang.reflect.Field;
 import java.net.Authenticator;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 
 import javax.swing.JButton;
@@ -30,6 +31,7 @@ import org.openstreetmap.josm.data.oauth.OAuth20Exception;
 import org.openstreetmap.josm.data.oauth.OAuth20Parameters;
 import org.openstreetmap.josm.data.oauth.OAuth20Token;
 import org.openstreetmap.josm.data.oauth.OAuthAccessTokenHolder;
+import org.openstreetmap.josm.data.oauth.OAuthParameters;
 import org.openstreetmap.josm.data.oauth.OAuthVersion;
 import org.openstreetmap.josm.gui.MainApplication;
 import org.openstreetmap.josm.gui.oauth.AdvancedOAuthPropertiesPanel;
@@ -67,6 +69,10 @@ class OAuthAuthenticationPreferencesPanelTest {
         }
 
         assertAll(exceptionList.stream().map(e -> () -> fail(e)));
+        // removing a token keeps the OAuth settings of the server
+        Config.getPref().removeSensitive("oauth.access-token.parameters.OAuth20." + OsmApi.getOsmApi().getHost());
+        Config.getPref().put("oauth.settings.use-default." + OsmApi.getOsmApi().getHost(), null);
+        NetworkManager.setOnline(OnlineResource.ALL);
     }
 
     @ParameterizedTest
@@ -136,6 +142,94 @@ class OAuthAuthenticationPreferencesPanelTest {
             NetworkManager.setOnline(OnlineResource.ALL);
             Config.getPref().put("oauth.settings.use-default", null);
         }
+    }
+
+    /**
+     * Removing the token keeps the OAuth settings entered for the server, so that a new token can be obtained
+     * without entering them again.
+     * @throws ReflectiveOperationException if a field cannot be accessed
+     * @throws CredentialsAgentException if the token cannot be stored
+     * @throws OAuth20Exception if the token cannot be built
+     * @throws ExecutionException if waiting for the worker fails
+     * @throws InterruptedException if waiting for the worker is interrupted
+     */
+    @Test
+    void testRemoveTokenKeepsTheEnteredSettings() throws ReflectiveOperationException, CredentialsAgentException, OAuth20Exception,
+            ExecutionException, InterruptedException {
+        // the default parameters of the API would otherwise be looked up with an RFC 8414 request
+        NetworkManager.setOffline(OnlineResource.ALL);
+        // the user entered the settings, and obtained a token with them
+        OAuthParameters.setUseDefault(OsmApi.getOsmApi().getServerUrl(), false);
+        addAuthorization(OAuthVersion.OAuth20);
+        final OAuthAuthenticationPreferencesPanel panel = new OAuthAuthenticationPreferencesPanel(OAuthVersion.OAuth20);
+        panel.initFromPreferences();
+        waitForWorkerAndEdt();
+        ((JButton) getAlreadyAuthorisedButtons(panel).getComponent(2)).getAction().actionPerformed(null);
+        panel.saveToPreferences();
+        assertNull(getAuthorization(OAuthVersion.OAuth20));
+
+        final OAuthAuthenticationPreferencesPanel reopened = new OAuthAuthenticationPreferencesPanel(OAuthVersion.OAuth20);
+        reopened.initFromPreferences();
+        waitForWorkerAndEdt();
+        final AdvancedOAuthPropertiesPanel advanced = getAdvancedProperties(reopened);
+        assertFalse(advanced.isUseDefaultSettings());
+        assertEquals("fake_id", advanced.getEnteredClientId());
+    }
+
+    /**
+     * The "Authorize now" button is enabled according to the latest change of the advanced OAuth parameters.
+     * <p>
+     * Non-regression test: with "use default settings" ticked, the client id is looked up on the worker thread, and
+     * the result of that lookup was applied even when the parameters had changed again in the meantime, for example
+     * because the box was unticked and no client id entered.
+     * @throws ReflectiveOperationException if a field cannot be accessed
+     * @throws ExecutionException if waiting for the worker fails
+     * @throws InterruptedException if waiting for the worker is interrupted
+     */
+    @Test
+    void testAuthorizeButtonFollowsTheLatestChange() throws ReflectiveOperationException, ExecutionException, InterruptedException {
+        NetworkManager.setOffline(OnlineResource.ALL);
+        final OAuthAuthenticationPreferencesPanel panel = new OAuthAuthenticationPreferencesPanel(OAuthVersion.OAuth20);
+        panel.initFromPreferences();
+        waitForWorkerAndEdt();
+        final AdvancedOAuthPropertiesPanel advanced = getAdvancedProperties(panel);
+        assertTrue(advanced.isUseDefaultSettings());
+        final Field pnlNotYetAuthorised = OAuthAuthenticationPreferencesPanel.class.getDeclaredField("pnlNotYetAuthorised");
+        ReflectionUtils.setObjectsAccessible(pnlNotYetAuthorised);
+        final JButton authorize = (JButton) ((JPanel) pnlNotYetAuthorised.get(panel)).getComponent(1);
+        assertTrue(authorize.isEnabled(), "JOSM has a client id for the default API");
+
+        // hold the worker, so that the lookup made with the default settings finishes after the next change
+        final CountDownLatch latch = new CountDownLatch(1);
+        MainApplication.worker.execute(() -> {
+            try {
+                latch.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        try {
+            ((JTextField) getAdvancedField(advanced, "tfClientId")).setText("");
+            ((JCheckBox) getAdvancedField(advanced, "cbUseDefaults")).setSelected(false);
+            assertFalse(authorize.isEnabled(), "without a client id there is nothing to authorize with");
+        } finally {
+            latch.countDown();
+        }
+        waitForWorkerAndEdt();
+        assertFalse(authorize.isEnabled(), "the lookup made with the default settings overrode a later change");
+    }
+
+    private static AdvancedOAuthPropertiesPanel getAdvancedProperties(OAuthAuthenticationPreferencesPanel panel)
+            throws ReflectiveOperationException {
+        final Field pnlAdvancedProperties = OAuthAuthenticationPreferencesPanel.class.getDeclaredField("pnlAdvancedProperties");
+        ReflectionUtils.setObjectsAccessible(pnlAdvancedProperties);
+        return (AdvancedOAuthPropertiesPanel) pnlAdvancedProperties.get(panel);
+    }
+
+    private static Object getAdvancedField(AdvancedOAuthPropertiesPanel advanced, String name) throws ReflectiveOperationException {
+        final Field field = AdvancedOAuthPropertiesPanel.class.getDeclaredField(name);
+        ReflectionUtils.setObjectsAccessible(field);
+        return field.get(advanced);
     }
 
     /**

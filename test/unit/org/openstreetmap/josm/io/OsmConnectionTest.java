@@ -20,6 +20,7 @@ import org.openstreetmap.josm.data.oauth.OAuth20Exception;
 import org.openstreetmap.josm.data.oauth.OAuth20Parameters;
 import org.openstreetmap.josm.data.oauth.OAuth20Token;
 import org.openstreetmap.josm.data.oauth.OAuthAccessTokenHolder;
+import org.openstreetmap.josm.data.oauth.OAuthParameters;
 import org.openstreetmap.josm.data.oauth.OAuthVersion;
 import org.openstreetmap.josm.spi.preferences.Config;
 import org.openstreetmap.josm.testutils.annotations.BasicPreferences;
@@ -54,7 +55,8 @@ class OsmConnectionTest {
         NetworkManager.setOnline(OnlineResource.ALL);
         OAuthAccessTokenHolder.getInstance().clear();
         // preferences and the token holder are static state shared with the other tests of this class
-        Config.getPref().put("oauth.access-token.parameters." + OAuthVersion.OAuth20 + "." + API_URL, null);
+        Config.getPref().put("oauth.access-token.parameters." + OAuthVersion.OAuth20 + "." + URI.create(API_URL).getHost(), null);
+        Config.getPref().put("oauth.settings.use-default." + URI.create(API_URL).getHost(), null);
         Config.getPref().put("osm-server.url", null);
     }
 
@@ -63,10 +65,11 @@ class OsmConnectionTest {
     }
 
     /**
-     * Stores the advanced OAuth parameters the way the authentication preferences do, that is under the API URL.
+     * Stores the advanced OAuth parameters the way the authentication preferences do.
      */
     private static OAuth20Parameters rememberParameters() {
         final OAuth20Parameters parameters = new OAuth20Parameters(CLIENT_ID, null, API_URL, API_URL, REDIRECT_URI);
+        OAuthParameters.setUseDefault(API_URL, false);
         parameters.rememberPreferences();
         return parameters;
     }

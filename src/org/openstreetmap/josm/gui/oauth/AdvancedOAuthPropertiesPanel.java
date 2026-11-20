@@ -9,6 +9,7 @@ import java.awt.GridBagLayout;
 import java.awt.Insets;
 import java.awt.event.ItemEvent;
 import java.awt.event.ItemListener;
+import java.util.Objects;
 
 import javax.swing.BorderFactory;
 import javax.swing.JCheckBox;
@@ -29,7 +30,6 @@ import org.openstreetmap.josm.gui.util.GuiHelper;
 import org.openstreetmap.josm.gui.widgets.JosmTextField;
 import org.openstreetmap.josm.gui.widgets.SelectAllOnFocusGainedDecorator;
 import org.openstreetmap.josm.gui.widgets.VerticallyScrollablePanel;
-import org.openstreetmap.josm.spi.preferences.Config;
 import org.openstreetmap.josm.tools.CheckParameterUtil;
 import org.openstreetmap.josm.tools.ImageProvider;
 
@@ -142,7 +142,7 @@ public class AdvancedOAuthPropertiesPanel extends VerticallyScrollablePanel {
 
         ilUseDefault = new UseDefaultItemListener();
         cbUseDefaults.addItemListener(ilUseDefault);
-        cbUseDefaults.setSelected(Config.getPref().getBoolean("oauth.settings.use-default", true));
+        cbUseDefaults.setSelected(true);
         cbUseDefaults.addItemListener(e -> fireParametersChanged());
         tfClientId.getDocument().addDocumentListener(new DocumentListener() {
             @Override
@@ -186,7 +186,7 @@ public class AdvancedOAuthPropertiesPanel extends VerticallyScrollablePanel {
     }
 
     protected boolean hasCustomSettings() {
-        IOAuthParameters params = OAuthParameters.createDefault(apiUrl, OAuthVersion.OAuth20);
+        IOAuthParameters params = OAuthParameters.createDefault(apiUrl, this.oauthVersion);
         return !params.equals(getAdvancedParameters());
     }
 
@@ -300,15 +300,17 @@ public class AdvancedOAuthPropertiesPanel extends VerticallyScrollablePanel {
      */
     public void initialize(String paramApiUrl) {
         CheckParameterUtil.ensureParameterNotNull(paramApiUrl, "paramApiUrl");
-        setApiUrl(paramApiUrl);
-        boolean useDefault = Config.getPref().getBoolean("oauth.settings.use-default", true);
+        this.apiUrl = paramApiUrl;
+        // "use default settings" is a setting of each server
+        boolean useDefault = OAuthParameters.isUseDefault(paramApiUrl);
         ilUseDefault.setEnabled(false);
+        cbUseDefaults.setSelected(useDefault);
         MainApplication.worker.execute(() -> {
             if (useDefault) {
                 this.resetToDefaultSettings();
             } else {
                 // createFromApiUrl may make a network request
-                final IOAuthParameters parameters = OAuthParameters.createFromApiUrl(paramApiUrl, OAuthVersion.OAuth20);
+                final IOAuthParameters parameters = OAuthParameters.createFromApiUrl(paramApiUrl, this.oauthVersion);
                 GuiHelper.runInEDT(() -> setAdvancedParameters(parameters));
             }
             GuiHelper.runInEDT(() -> ilUseDefault.setEnabled(true));
@@ -316,13 +318,16 @@ public class AdvancedOAuthPropertiesPanel extends VerticallyScrollablePanel {
     }
 
     /**
-     * Remembers the current values in the preferences <code>pref</code>.
+     * Remembers the current values in the preferences <code>pref</code>: whether the server uses the default
+     * settings, and the settings entered if not. Settings entered earlier are kept when the default settings are
+     * used, so that they are there again when they are needed again.
      */
     public void rememberPreferences() {
-        Config.getPref().putBoolean("oauth.settings.use-default", cbUseDefaults.isSelected());
-        if (cbUseDefaults.isSelected()) {
-            MainApplication.worker.execute(() -> OAuthParameters.createDefault().rememberPreferences());
-        } else {
+        if (apiUrl == null) {
+            return; // not initialized
+        }
+        OAuthParameters.setUseDefault(apiUrl, cbUseDefaults.isSelected());
+        if (!cbUseDefaults.isSelected()) {
             getAdvancedParameters().rememberPreferences();
         }
     }
@@ -360,6 +365,12 @@ public class AdvancedOAuthPropertiesPanel extends VerticallyScrollablePanel {
      * @since 5422
      */
     public void setApiUrl(String apiUrl) {
+        if (this.apiUrl != null && apiUrl != null
+                && !Objects.equals(OAuthParameters.getHost(this.apiUrl), OAuthParameters.getHost(apiUrl))) {
+            // another server, with settings of its own
+            initialize(apiUrl);
+            return;
+        }
         this.apiUrl = apiUrl;
         if (cbUseDefaults.isSelected()) {
             MainApplication.worker.execute(this::resetToDefaultSettings);

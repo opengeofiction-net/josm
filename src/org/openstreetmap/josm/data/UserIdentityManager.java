@@ -295,8 +295,9 @@ public final class UserIdentityManager implements PreferenceChangedListener {
             }
             break;
         default:
-            // the OAuth 2 token of the current server changed, e.g. oauth.access-token.parameters.OAuth20.api.openstreetmap.org
-            if (("oauth.access-token.parameters.OAuth20." + OsmApi.getOsmApi().getHost()).equals(evt.getKey())) {
+            // the OAuth 2 token of the current server was stored or removed, e.g. oauth.access-token.object.OAuth20.api.openstreetmap.org;
+            // its parameters are kept when it is removed, so they do not tell
+            if (("oauth.access-token.object.OAuth20." + OsmApi.getOsmApi().getHost()).equals(evt.getKey())) {
                 if (OsmApi.isUsingOAuthAndOAuthSetUp(OsmApi.getOsmApi())) {
                     getInstance().initFromOAuth();
                 } else if (OsmApi.isUsingOAuth()) {

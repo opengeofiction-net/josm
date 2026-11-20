@@ -18,7 +18,6 @@ import java.beans.PropertyChangeListener;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.Arrays;
-import java.util.Objects;
 
 import javax.swing.AbstractAction;
 import javax.swing.BorderFactory;
@@ -305,6 +304,8 @@ public class OAuthAuthenticationPreferencesPanel extends JPanel implements Prope
      */
     private class AuthoriseNowAction extends AbstractAction {
         private final AuthorizationProcedure procedure;
+        /** Counts the updates of the enabled state, so that the result of an earlier one cannot override a later one */
+        private int updates;
 
         AuthoriseNowAction(AuthorizationProcedure procedure) {
             this.procedure = procedure;
@@ -317,6 +318,7 @@ public class OAuthAuthenticationPreferencesPanel extends JPanel implements Prope
         }
 
         void updateEnabledState() {
+            final int update = ++updates;
             if (procedure == AuthorizationProcedure.MANUALLY) {
                 this.setEnabled(true);
             } else if (!pnlAdvancedProperties.isUseDefaultSettings()) {
@@ -333,13 +335,16 @@ public class OAuthAuthenticationPreferencesPanel extends JPanel implements Prope
                     return;
                 }
                 if (DomainValidator.getInstance().isValid(apiURI.getHost())) {
-                    // We want to avoid trying to make connection with an invalid URL
+                    // We want to avoid trying to make connection with an invalid URL. These are the parameters the
+                    // wizard is given, see AdvancedOAuthPropertiesPanel.getAdvancedParameters().
                     final String currentApiUrl = apiUrl;
                     MainApplication.worker.execute(() -> {
-                        final String clientId = OAuthParameters.createFromApiUrl(apiUrl, oAuthVersion).getClientId();
-                        if (Objects.equals(apiUrl, currentApiUrl)) {
-                            GuiHelper.runInEDT(() -> this.setEnabled(!Utils.isEmpty(clientId)));
-                        }
+                        final String clientId = OAuthParameters.createDefault(currentApiUrl, oAuthVersion).getClientId();
+                        GuiHelper.runInEDT(() -> {
+                            if (update == updates) {
+                                this.setEnabled(!Utils.isEmpty(clientId));
+                            }
+                        });
                     });
                 }
             }
@@ -414,7 +419,7 @@ public class OAuthAuthenticationPreferencesPanel extends JPanel implements Prope
 
         @Override
         public void actionPerformed(ActionEvent evt) {
-            IOAuthToken token = OAuthAccessTokenHolder.getInstance().getAccessToken(apiUrl, OAuthVersion.OAuth20);
+            IOAuthToken token = OAuthAccessTokenHolder.getInstance().getAccessToken(apiUrl, oAuthVersion);
             TestAccessTokenTask task = new TestAccessTokenTask(
                     OAuthAuthenticationPreferencesPanel.this,
                     apiUrl,
@@ -430,6 +435,7 @@ public class OAuthAuthenticationPreferencesPanel extends JPanel implements Prope
             updateAuthoriseNowActions();
         } else if (OsmApiUrlInputPanel.API_URL_PROP.equals(evt.getPropertyName())) {
             setApiUrl((String) evt.getNewValue());
+            refreshView();
         }
     }
 }

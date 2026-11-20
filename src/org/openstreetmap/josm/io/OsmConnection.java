@@ -177,9 +177,8 @@ public class OsmConnection {
      */
     protected void addOAuth20AuthorizationHeader(HttpClient connection) throws OsmTransferException {
         if (this.oAuth20Parameters == null) {
-            // The parameters are stored under the API URL, so look them up with the API URL and not with the
-            // host of the request: OAuthParameters.createFromApiUrl() reduces it to the host itself where that
-            // is what it needs.
+            // Look them up with the API URL and not with the host of the request: OAuthParameters.createFromApiUrl()
+            // reduces it to the host itself for the stored parameters, and needs the URL for the default ones.
             this.oAuth20Parameters = OAuthParameters.createFromApiUrl(OsmApi.getOsmApi().getServerUrl(), OAuthVersion.OAuth20);
         }
         OAuthAccessTokenHolder holder = OAuthAccessTokenHolder.getInstance();
