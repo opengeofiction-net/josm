@@ -12,7 +12,6 @@ import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
 import java.awt.event.ActionEvent;
-import java.awt.event.ItemEvent;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.net.URI;
@@ -23,43 +22,39 @@ import javax.swing.AbstractAction;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
-import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 
-import org.openstreetmap.josm.actions.ExpertToggleAction;
+import org.openstreetmap.josm.data.oauth.IOAuthParameters;
 import org.openstreetmap.josm.data.oauth.IOAuthToken;
+import org.openstreetmap.josm.data.oauth.OAuth20Authorization;
 import org.openstreetmap.josm.data.oauth.OAuth20Token;
 import org.openstreetmap.josm.data.oauth.OAuthAccessTokenHolder;
 import org.openstreetmap.josm.data.oauth.OAuthParameters;
 import org.openstreetmap.josm.data.oauth.OAuthVersion;
+import org.openstreetmap.josm.data.oauth.osm.OsmScopes;
 import org.openstreetmap.josm.data.validation.routines.DomainValidator;
 import org.openstreetmap.josm.gui.MainApplication;
 import org.openstreetmap.josm.gui.oauth.AdvancedOAuthPropertiesPanel;
-import org.openstreetmap.josm.gui.oauth.AuthorizationProcedure;
-import org.openstreetmap.josm.gui.oauth.OAuthAuthorizationWizard;
 import org.openstreetmap.josm.gui.oauth.TestAccessTokenTask;
 import org.openstreetmap.josm.gui.util.GuiHelper;
 import org.openstreetmap.josm.gui.widgets.JMultilineLabel;
-import org.openstreetmap.josm.gui.widgets.JosmTextField;
 import org.openstreetmap.josm.io.OsmApi;
 import org.openstreetmap.josm.io.auth.CredentialsManager;
+import org.openstreetmap.josm.io.remotecontrol.RemoteControl;
 import org.openstreetmap.josm.tools.GBC;
 import org.openstreetmap.josm.tools.ImageProvider;
 import org.openstreetmap.josm.tools.Logging;
-import org.openstreetmap.josm.tools.UserCancelException;
 import org.openstreetmap.josm.tools.Utils;
 
 /**
- * The preferences panel for OAuth 2.0. This is just a summary panel
- * showing the current Access Token, if the user already has one.
- * <br>
- * For initial authorisation see {@link OAuthAuthorizationWizard}.
+ * The preferences panel for OAuth 2.0: whether JOSM has an Access Token for the server, a button to authorize JOSM
+ * in the web browser, and the advanced OAuth parameters, which include the Access Token itself so that a token
+ * obtained outside JOSM can be pasted instead.
  * @since 2745
  */
 public class OAuthAuthenticationPreferencesPanel extends JPanel implements PropertyChangeListener {
     private final JCheckBox cbUseForAllRequests = new JCheckBox();
-    private final JCheckBox cbShowAdvancedParameters = new JCheckBox(tr("Display Advanced OAuth Parameters"));
     private final JCheckBox cbSaveToPreferences = new JCheckBox(tr("Save to preferences"));
     private final JPanel pnlAuthorisationMessage = new JPanel(new BorderLayout());
     private final NotYetAuthorisedPanel pnlNotYetAuthorised;
@@ -93,12 +88,6 @@ public class OAuthAuthenticationPreferencesPanel extends JPanel implements Prope
         cbUseForAllRequests.setToolTipText(tr("For user-based bandwidth limit instead of IP-based one"));
         pnl.add(cbUseForAllRequests, GBC.eol().fill(GBC.HORIZONTAL));
 
-        pnl.add(cbShowAdvancedParameters, GBC.eol().fill(GBC.HORIZONTAL));
-        cbShowAdvancedParameters.setSelected(false);
-        cbShowAdvancedParameters.addItemListener(
-                evt -> pnlAdvancedProperties.setVisible(evt.getStateChange() == ItemEvent.SELECTED)
-        );
-
         pnl.add(pnlAdvancedProperties, GBC.eol().fill(GBC.HORIZONTAL).insets(0, 3, 0, 0));
         pnlAdvancedProperties.initialize(OsmApi.getOsmApi().getServerUrl());
         pnlAdvancedProperties.setBorder(
@@ -107,7 +96,6 @@ public class OAuthAuthenticationPreferencesPanel extends JPanel implements Prope
                         BorderFactory.createEmptyBorder(3, 3, 3, 3)
                 )
         );
-        pnlAdvancedProperties.setVisible(false);
         pnlAdvancedProperties.addPropertyChangeListener(this);
         return pnl;
     }
@@ -252,10 +240,7 @@ public class OAuthAuthenticationPreferencesPanel extends JPanel implements Prope
             lbl.setFont(lbl.getFont().deriveFont(Font.PLAIN));
 
             // Action for authorising now
-            add(new JButton(new AuthoriseNowAction(AuthorizationProcedure.FULLY_AUTOMATIC)), GBC.eol());
-            JButton authManually = new JButton(new AuthoriseNowAction(AuthorizationProcedure.MANUALLY));
-            add(authManually, GBC.eol());
-            ExpertToggleAction.addVisibilitySwitcher(authManually);
+            add(new JButton(new AuthoriseNowAction()), GBC.eol());
 
             // filler - grab remaining space
             add(new JPanel(), GBC.std().fill(GBC.BOTH));
@@ -267,7 +252,6 @@ public class OAuthAuthenticationPreferencesPanel extends JPanel implements Prope
      *
      */
     private class AlreadyAuthorisedPanel extends JPanel {
-        private final JosmTextField tfAccessTokenKey = new JosmTextField(null, null, 0, false);
         private final JPanel pnlButtons = new JPanel(new FlowLayout(FlowLayout.LEFT));
 
         /**
@@ -290,20 +274,8 @@ public class OAuthAuthenticationPreferencesPanel extends JPanel implements Prope
             add(lbl, gc);
             lbl.setFont(lbl.getFont().deriveFont(Font.PLAIN));
 
-            // -- access token key
+            // -- save to preferences; the Access Token itself is shown with the advanced OAuth parameters
             gc.gridy = 1;
-            gc.gridx = 0;
-            gc.gridwidth = 1;
-            gc.weightx = 0.0;
-            add(new JLabel(tr("Access Token:")), gc);
-
-            gc.gridx = 1;
-            gc.weightx = 1.0;
-            add(tfAccessTokenKey, gc);
-            tfAccessTokenKey.setEditable(false);
-
-            // -- save to preferences
-            gc.gridy = 2;
             gc.gridx = 0;
             gc.gridwidth = 2;
             gc.weightx = 1.0;
@@ -311,17 +283,17 @@ public class OAuthAuthenticationPreferencesPanel extends JPanel implements Prope
             cbSaveToPreferences.setSelected(OAuthAccessTokenHolder.getInstance().isSaveToPreferences());
 
             // -- action buttons
-            pnlButtons.add(new JButton(new RenewAuthorisationAction(AuthorizationProcedure.FULLY_AUTOMATIC)));
+            pnlButtons.add(new JButton(new RenewAuthorisationAction()));
             pnlButtons.add(new JButton(new TestAuthorisationAction()));
             pnlButtons.add(new JButton(new RemoveAuthorisationAction()));
-            gc.gridy = 3;
+            gc.gridy = 2;
             gc.gridx = 0;
             gc.gridwidth = 2;
             gc.weightx = 1.0;
             add(pnlButtons, gc);
 
             // filler - grab the remaining space
-            gc.gridy = 4;
+            gc.gridy = 3;
             gc.fill = GridBagConstraints.BOTH;
             gc.weightx = 1.0;
             gc.weighty = 1.0;
@@ -329,47 +301,31 @@ public class OAuthAuthenticationPreferencesPanel extends JPanel implements Prope
         }
 
         protected final void refreshView() {
-            switch (oAuthVersion) {
-                case OAuth20:
-                case OAuth21:
-                    String token = "";
-                    if (apiUrl != null) {
-                        OAuth20Token bearerToken = (OAuth20Token) OAuthAccessTokenHolder.getInstance().getAccessToken(apiUrl, oAuthVersion);
-                        token = bearerToken == null ? "" : bearerToken.getBearerToken();
-                    }
-                    tfAccessTokenKey.setText(token == null ? "" : token);
-                    break;
-                default:
-            }
             cbSaveToPreferences.setSelected(OAuthAccessTokenHolder.getInstance().isSaveToPreferences());
         }
     }
 
     /**
-     * Action to authorise the current user
+     * Action to authorise the current user: JOSM is authorized in the web browser, with the OAuth parameters
+     * currently shown, and receives an Access Token by remote control.
      */
     private class AuthoriseNowAction extends AbstractAction {
-        private final AuthorizationProcedure procedure;
         /** Counts the updates of the enabled state, so that the result of an earlier one cannot override a later one */
         private int updates;
 
-        AuthoriseNowAction(AuthorizationProcedure procedure) {
-            this.procedure = procedure;
-            putValue(NAME, tr("{0} ({1})", tr("Authorize now"), procedure.getText()));
-            putValue(SHORT_DESCRIPTION, procedure.getDescription());
-            if (procedure == AuthorizationProcedure.FULLY_AUTOMATIC) {
-                new ImageProvider("oauth", "oauth-small").getResource().attachImageIcon(this);
-            }
+        AuthoriseNowAction() {
+            putValue(NAME, tr("Authorize now"));
+            putValue(SHORT_DESCRIPTION, tr("Authorize JOSM in the web browser to access the OSM server on your behalf, "
+                    + "and get an Access Token"));
+            new ImageProvider("oauth", "oauth-small").getResource().attachImageIcon(this);
             updateEnabledState();
         }
 
         void updateEnabledState() {
             final int update = ++updates;
-            if (procedure == AuthorizationProcedure.MANUALLY) {
-                this.setEnabled(true);
-            } else if (!pnlAdvancedProperties.isUseDefaultSettings()) {
+            if (!pnlAdvancedProperties.isUseDefaultSettings()) {
                 // The user supplied the parameters - the client id of an OAuth application they
-                // registered on the server themselves. The wizard is given exactly these parameters
+                // registered on the server themselves. Authorization uses exactly these parameters
                 // when the button is pressed, so they decide whether it can be pressed.
                 this.setEnabled(!Utils.isEmpty(pnlAdvancedProperties.getEnteredClientId()));
             } else if (Utils.isValidUrl(apiUrl)) {
@@ -381,8 +337,8 @@ public class OAuthAuthenticationPreferencesPanel extends JPanel implements Prope
                     return;
                 }
                 if (DomainValidator.getInstance().isValid(apiURI.getHost())) {
-                    // We want to avoid trying to make connection with an invalid URL. These are the parameters the
-                    // wizard is given, see AdvancedOAuthPropertiesPanel.getAdvancedParameters().
+                    // We want to avoid trying to make connection with an invalid URL. These are the parameters
+                    // authorization uses, see AdvancedOAuthPropertiesPanel.getAdvancedParameters().
                     final String currentApiUrl = apiUrl;
                     MainApplication.worker.execute(() -> {
                         final String clientId = OAuthParameters.createDefault(currentApiUrl, oAuthVersion).getClientId();
@@ -398,22 +354,34 @@ public class OAuthAuthenticationPreferencesPanel extends JPanel implements Prope
 
         @Override
         public void actionPerformed(ActionEvent arg0) {
-            OAuthAuthorizationWizard wizard = new OAuthAuthorizationWizard(
-                    OAuthAuthenticationPreferencesPanel.this,
-                    procedure,
-                    apiUrl,
-                    MainApplication.worker,
-                    oAuthVersion,
-                    pnlAdvancedProperties.getAdvancedParameters()
-                    );
-            try {
-                wizard.showDialog(token -> GuiHelper.runInEDT(OAuthAuthenticationPreferencesPanel.this::refreshView));
-            } catch (UserCancelException userCancelException) {
-                Logging.trace(userCancelException);
-                return;
+            final String currentApiUrl = apiUrl;
+            final IOAuthParameters parameters = pnlAdvancedProperties.getAdvancedParameters();
+            // the token is received by remote control, which is started for the time it takes if it is not running
+            final boolean remoteControlIsRunning = Boolean.TRUE.equals(RemoteControl.PROP_REMOTECONTROL_ENABLED.get());
+            if (!remoteControlIsRunning) {
+                RemoteControl.start();
             }
-            pnlAdvancedProperties.setAdvancedParameters(wizard.getOAuthParameters());
-            refreshView();
+            new OAuth20Authorization().authorize(parameters, token -> {
+                if (!remoteControlIsRunning) {
+                    RemoteControl.stop();
+                }
+                // a failed attempt, e.g. at a new token, leaves the token JOSM has as it is
+                token.ifPresent(t -> {
+                    OAuthAccessTokenHolder.getInstance().setAccessToken(currentApiUrl, t);
+                    OAuthAccessTokenHolder.getInstance().save(CredentialsManager.getInstance());
+                });
+                GuiHelper.runInEDT(() -> {
+                    if (!token.isPresent()) {
+                        JOptionPane.showMessageDialog(OAuthAuthenticationPreferencesPanel.this,
+                                tr("Authentication failed, please check browser for details."),
+                                tr("OAuth Authentication Failed"),
+                                JOptionPane.ERROR_MESSAGE);
+                    }
+                    refreshView();
+                });
+            }, OsmScopes.read_gpx, OsmScopes.write_gpx,
+                    OsmScopes.read_prefs, OsmScopes.write_prefs,
+                    OsmScopes.write_api, OsmScopes.write_notes);
         }
     }
 
@@ -436,17 +404,15 @@ public class OAuthAuthenticationPreferencesPanel extends JPanel implements Prope
     }
 
     /**
-     * Launches the OAuthAuthorisationWizard to generate a new Access Token
+     * Authorizes JOSM again, to generate a new Access Token
      */
     private class RenewAuthorisationAction extends AuthoriseNowAction {
         /**
          * Constructs a new {@code RenewAuthorisationAction}.
          */
-        RenewAuthorisationAction(AuthorizationProcedure procedure) {
-            super(procedure);
+        RenewAuthorisationAction() {
             putValue(NAME, tr("New Access Token"));
             putValue(SHORT_DESCRIPTION, tr("Click to step through the OAuth authorization process and generate a new Access Token"));
-            new ImageProvider("oauth", "oauth-small").getResource().attachImageIcon(this);
         }
     }
 

@@ -20,6 +20,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
+import java.util.stream.Stream;
 
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
@@ -46,9 +47,11 @@ import org.openstreetmap.josm.io.OnlineResource;
 import org.openstreetmap.josm.io.OsmApi;
 import org.openstreetmap.josm.io.auth.CredentialsAgentException;
 import org.openstreetmap.josm.io.auth.CredentialsManager;
+import org.openstreetmap.josm.io.remotecontrol.RemoteControl;
 import org.openstreetmap.josm.spi.preferences.Config;
 import org.openstreetmap.josm.testutils.annotations.BasicPreferences;
 import org.openstreetmap.josm.testutils.mockers.JOptionPaneSimpleMocker;
+import org.openstreetmap.josm.testutils.mockers.OpenBrowserMocker;
 import org.openstreetmap.josm.testutils.mockers.WindowMocker;
 import org.openstreetmap.josm.tools.HttpClient;
 import org.openstreetmap.josm.tools.ReflectionUtils;
@@ -339,6 +342,93 @@ class OAuthAuthenticationPreferencesPanelTest {
 
         test.doClick();
         assertEquals(1, mocker.getInvocationLog().size(), "the stored token was tested instead");
+    }
+
+    /**
+     * "Authorize now" authorizes JOSM in the web browser straight away, with the OAuth parameters shown in the panel.
+     * @throws Exception if a field cannot be accessed or waiting for the worker fails
+     */
+    @Test
+    void testAuthorizeNowUsesTheDisplayedParameters() throws Exception {
+        TestUtils.assumeWorkingJMockit();
+        new OpenBrowserMocker();
+        OpenBrowserMocker.getCalledURIs().clear();
+        NetworkManager.setOffline(OnlineResource.ALL);
+        RemoteControl.stop();
+        try {
+            final OAuthAuthenticationPreferencesPanel panel = new OAuthAuthenticationPreferencesPanel(OAuthVersion.OAuth20);
+            panel.initFromPreferences();
+            waitForWorkerAndEdt();
+            final AdvancedOAuthPropertiesPanel advanced = getAdvancedProperties(panel);
+            advanced.setAdvancedParameters(new OAuth20Parameters("an-entered-client-id", null, "https://example.org/oauth2/token",
+                    "https://example.org/oauth2/authorize", OsmApi.getOsmApi().getServerUrl(), "http://127.0.0.1:8111/oauth_authorization"));
+            assertFalse(advanced.isUseDefaultSettings());
+            final Field pnlNotYetAuthorised = OAuthAuthenticationPreferencesPanel.class.getDeclaredField("pnlNotYetAuthorised");
+            ReflectionUtils.setObjectsAccessible(pnlNotYetAuthorised);
+            final JButton authorize = (JButton) ((JPanel) pnlNotYetAuthorised.get(panel)).getComponent(1);
+            assertEquals(tr("Authorize now"), authorize.getText());
+
+            authorize.doClick();
+            GuiHelper.runInEDTAndWait(() -> { });
+
+            assertEquals(1, OpenBrowserMocker.getCalledURIs().size());
+            final String url = OpenBrowserMocker.getCalledURIs().get(0).toString();
+            assertTrue(url.startsWith("https://example.org/oauth2/authorize?"), url);
+            assertTrue(url.contains("client_id=an-entered-client-id"), url);
+        } finally {
+            RemoteControl.stop();
+        }
+    }
+
+    /**
+     * A failed attempt at a new Access Token leaves the token JOSM has as it is.
+     * <p>
+     * Non-regression test: the token was replaced by none whenever the authorization failed, for example when the
+     * server refused to exchange the code for a token, so a failed renewal lost a working token.
+     * @throws Exception if a field cannot be accessed, the token cannot be stored or the redirect cannot be sent
+     */
+    @Test
+    void testFailedRenewalKeepsTheToken() throws Exception {
+        TestUtils.assumeWorkingJMockit();
+        new OpenBrowserMocker();
+        OpenBrowserMocker.getCalledURIs().clear();
+        new JOptionPaneSimpleMocker(Collections.singletonMap(
+                "Authentication failed, please check browser for details.", JOptionPane.OK_OPTION));
+        NetworkManager.setOffline(OnlineResource.ALL);
+        RemoteControl.stop();
+        addAuthorization(OAuthVersion.OAuth20);
+        try {
+            final OAuthAuthenticationPreferencesPanel panel = new OAuthAuthenticationPreferencesPanel(OAuthVersion.OAuth20);
+            panel.initFromPreferences();
+            waitForWorkerAndEdt();
+            // the token request goes to a port nothing listens on, so that the exchange fails
+            getAdvancedProperties(panel).setAdvancedParameters(new OAuth20Parameters("an-entered-client-id", null,
+                    "http://127.0.0.1:1/oauth2/token", "https://example.org/oauth2/authorize",
+                    OsmApi.getOsmApi().getServerUrl(), "http://127.0.0.1:8111/oauth_authorization"));
+            final JButton renew = (JButton) getAlreadyAuthorisedButtons(panel).getComponent(0);
+            assertEquals(tr("New Access Token"), renew.getText());
+
+            renew.doClick();
+            GuiHelper.runInEDTAndWait(() -> { });
+            assertEquals(1, OpenBrowserMocker.getCalledURIs().size());
+            final String state = Stream.of(OpenBrowserMocker.getCalledURIs().get(0).getQuery().split("&"))
+                    .filter(p -> p.startsWith("state=")).map(p -> p.substring("state=".length())).findFirst().orElseThrow();
+            // the web browser is redirected to JOSM with a code
+            final HttpClient redirect = HttpClient.create(
+                    URI.create("http://127.0.0.1:8111/oauth_authorization?code=a-code&state=" + state).toURL());
+            try {
+                redirect.connect();
+            } finally {
+                redirect.disconnect();
+            }
+            GuiHelper.runInEDTAndWait(() -> { });
+
+            final OAuth20Token token = (OAuth20Token) getAuthorization(OAuthVersion.OAuth20);
+            assertNotNull(token, "the token was lost");
+            assertEquals("fake_token", token.getBearerToken());
+        } finally {
+            RemoteControl.stop();
+        }
     }
 
     private static AdvancedOAuthPropertiesPanel getAdvancedProperties(OAuthAuthenticationPreferencesPanel panel)

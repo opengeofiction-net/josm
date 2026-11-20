@@ -5,7 +5,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.lang.reflect.Field;
 import java.util.concurrent.ExecutionException;
+
+import javax.swing.JCheckBox;
+import javax.swing.JComponent;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -19,6 +23,7 @@ import org.openstreetmap.josm.io.NetworkManager;
 import org.openstreetmap.josm.io.OnlineResource;
 import org.openstreetmap.josm.spi.preferences.Config;
 import org.openstreetmap.josm.testutils.annotations.BasicPreferences;
+import org.openstreetmap.josm.tools.ReflectionUtils;
 
 /**
  * Unit tests of {@link AdvancedOAuthPropertiesPanel}.
@@ -83,6 +88,40 @@ class AdvancedOAuthPropertiesPanelTest {
         waitForWorkerAndEdt();
         assertFalse(panel.isUseDefaultSettings());
         assertEquals("entered-client-id", panel.getEnteredClientId());
+    }
+
+    /**
+     * The OAuth parameters are shown when the user enters them, that is when the default settings are not used.
+     * The access token is not one of them: it can be pasted whichever settings are used.
+     * @throws ReflectiveOperationException if a field cannot be accessed
+     * @throws ExecutionException if waiting for the worker fails
+     * @throws InterruptedException if waiting for the worker is interrupted
+     */
+    @Test
+    void testParametersAreShownWhenEntered() throws ReflectiveOperationException, ExecutionException, InterruptedException {
+        final AdvancedOAuthPropertiesPanel panel = new AdvancedOAuthPropertiesPanel(OAuthVersion.OAuth20);
+        panel.initialize(THIRD_PARTY);
+        waitForWorkerAndEdt();
+        final JComponent clientId = getField(panel, "tfClientId");
+        final JComponent accessToken = getField(panel, "tfAccessToken");
+        assertTrue(panel.isUseDefaultSettings());
+        assertFalse(clientId.isVisible());
+        assertTrue(accessToken.isVisible());
+
+        ((JCheckBox) getField(panel, "cbUseDefaults")).setSelected(false);
+        assertTrue(clientId.isVisible());
+        assertTrue(accessToken.isVisible());
+
+        OAuthParameters.setUseDefault(THIRD_PARTY, false);
+        final AdvancedOAuthPropertiesPanel entered = new AdvancedOAuthPropertiesPanel(OAuthVersion.OAuth20);
+        entered.initialize(THIRD_PARTY);
+        assertTrue(((JComponent) getField(entered, "tfClientId")).isVisible(), "the parameters are entered for this server");
+    }
+
+    private static JComponent getField(AdvancedOAuthPropertiesPanel panel, String name) throws ReflectiveOperationException {
+        final Field field = AdvancedOAuthPropertiesPanel.class.getDeclaredField(name);
+        ReflectionUtils.setObjectsAccessible(field);
+        return (JComponent) field.get(panel);
     }
 
     /**

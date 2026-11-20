@@ -157,6 +157,7 @@ public class AdvancedOAuthPropertiesPanel extends VerticallyScrollablePanel {
         ilUseDefault = new UseDefaultItemListener();
         cbUseDefaults.addItemListener(ilUseDefault);
         cbUseDefaults.setSelected(true);
+        setChildComponentsVisible(false);
         cbUseDefaults.addItemListener(e -> fireParametersChanged());
         tfClientId.getDocument().addDocumentListener(new DocumentListener() {
             @Override
@@ -269,19 +270,26 @@ public class AdvancedOAuthPropertiesPanel extends VerticallyScrollablePanel {
                         default:
                             throw new UnsupportedOperationException("Unsupported OAuth version: " + this.oauthVersion);
                     }
-                    setChildComponentsEnabled(false);
+                    setChildComponentsVisible(false);
                 });
     }
 
-    protected void setChildComponentsEnabled(boolean enabled) {
+    /**
+     * Shows or hides the OAuth parameters: they are shown when the user enters them, that is when the default
+     * settings are not used. The access token is not one of them, and is always shown.
+     * @param visible {@code true} to show the parameters
+     * @since xxx
+     */
+    protected void setChildComponentsVisible(boolean visible) {
         for (Component c: getComponents()) {
             if (c == tfAccessToken || c == lblAccessToken) {
                 continue;
             }
             if (c instanceof JosmTextField || c instanceof JLabel) {
-                c.setEnabled(enabled);
+                c.setVisible(visible);
             }
         }
+        revalidate();
     }
 
     /**
@@ -324,10 +332,10 @@ public class AdvancedOAuthPropertiesPanel extends VerticallyScrollablePanel {
         CheckParameterUtil.ensureParameterNotNull(parameters, "parameters");
         if (parameters.equals(OAuthParameters.createDefault(apiUrl, parameters.getOAuthVersion()))) {
             cbUseDefaults.setSelected(true);
-            setChildComponentsEnabled(false);
+            setChildComponentsVisible(false);
         } else {
             cbUseDefaults.setSelected(false);
-            setChildComponentsEnabled(true);
+            setChildComponentsVisible(true);
             if (parameters instanceof OAuth20Parameters) {
                 OAuth20Parameters parameters20 = (OAuth20Parameters) parameters;
                 tfClientId.setText(parameters20.getClientId());
@@ -352,6 +360,7 @@ public class AdvancedOAuthPropertiesPanel extends VerticallyScrollablePanel {
         boolean useDefault = OAuthParameters.isUseDefault(paramApiUrl);
         ilUseDefault.setEnabled(false);
         cbUseDefaults.setSelected(useDefault);
+        setChildComponentsVisible(!useDefault);
         MainApplication.worker.execute(() -> {
             if (useDefault) {
                 this.resetToDefaultSettings();
@@ -394,7 +403,7 @@ public class AdvancedOAuthPropertiesPanel extends VerticallyScrollablePanel {
                 MainApplication.worker.execute(AdvancedOAuthPropertiesPanel.this::resetToDefaultSettings);
                 break;
             case ItemEvent.DESELECTED:
-                setChildComponentsEnabled(true);
+                setChildComponentsVisible(true);
                 break;
             default: // Do nothing
             }
