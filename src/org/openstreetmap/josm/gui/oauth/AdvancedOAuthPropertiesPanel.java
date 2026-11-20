@@ -41,6 +41,7 @@ import org.openstreetmap.josm.tools.ImageProvider;
  * <li>Redirect URI</li>
  * <li>Access token URL</li>
  * <li>Authorize URL</li>
+ * <li>Access token, which can be pasted instead of authorizing JOSM</li>
  * </ul>
  *
  * @see OAuthParameters
@@ -60,6 +61,8 @@ public class AdvancedOAuthPropertiesPanel extends VerticallyScrollablePanel {
     private final JosmTextField tfRedirectUri = new JosmTextField();
     private final JosmTextField tfAccessTokenURL = new JosmTextField();
     private final JosmTextField tfAuthoriseURL = new JosmTextField();
+    private final JLabel lblAccessToken = new JLabel(tr("Access Token:"));
+    private final JosmTextField tfAccessToken = new JosmTextField();
     private final OAuthVersion oauthVersion;
     private transient UseDefaultItemListener ilUseDefault;
     private String apiUrl;
@@ -140,6 +143,17 @@ public class AdvancedOAuthPropertiesPanel extends VerticallyScrollablePanel {
         add(tfAuthoriseURL, gc);
         SelectAllOnFocusGainedDecorator.decorate(tfAuthoriseURL);
 
+        // -- access token: not one of the settings, so it can be pasted whether or not they are the default ones
+        gc.gridy++;
+        gc.gridx = 0;
+        gc.weightx = 0.0;
+        add(lblAccessToken, gc);
+
+        gc.gridx = 1;
+        gc.weightx = 1.0;
+        add(tfAccessToken, gc);
+        SelectAllOnFocusGainedDecorator.decorate(tfAccessToken);
+
         ilUseDefault = new UseDefaultItemListener();
         cbUseDefaults.addItemListener(ilUseDefault);
         cbUseDefaults.setSelected(true);
@@ -164,6 +178,24 @@ public class AdvancedOAuthPropertiesPanel extends VerticallyScrollablePanel {
 
     private void fireParametersChanged() {
         firePropertyChange(PARAMETERS_CHANGED_PROP, null, null);
+    }
+
+    /**
+     * Get the access token as entered in the panel.
+     * @return the access token, without surrounding white space; empty if there is none
+     * @since xxx
+     */
+    public String getAccessToken() {
+        return tfAccessToken.getText().trim();
+    }
+
+    /**
+     * Sets the access token to be displayed.
+     * @param accessToken the access token, or {@code null} if there is none
+     * @since xxx
+     */
+    public void setAccessToken(String accessToken) {
+        tfAccessToken.setText(accessToken);
     }
 
     /**
@@ -243,6 +275,9 @@ public class AdvancedOAuthPropertiesPanel extends VerticallyScrollablePanel {
 
     protected void setChildComponentsEnabled(boolean enabled) {
         for (Component c: getComponents()) {
+            if (c == tfAccessToken || c == lblAccessToken) {
+                continue;
+            }
             if (c instanceof JosmTextField || c instanceof JLabel) {
                 c.setEnabled(enabled);
             }
@@ -257,6 +292,18 @@ public class AdvancedOAuthPropertiesPanel extends VerticallyScrollablePanel {
     public IOAuthParameters getAdvancedParameters() {
         if (cbUseDefaults.isSelected())
             return OAuthParameters.createDefault(apiUrl, this.oauthVersion);
+        return getDisplayedParameters();
+    }
+
+    /**
+     * Replies the OAuth parameters as currently displayed in this properties panel: the default ones are shown when
+     * "use default settings" is ticked, as far as they are known yet. Unlike {@link #getAdvancedParameters()}, this
+     * never makes a network request, and some of the parameters may be empty.
+     *
+     * @return the OAuth parameters
+     * @since xxx
+     */
+    public OAuth20Parameters getDisplayedParameters() {
         return new OAuth20Parameters(
                 tfClientId.getText(),
                 tfClientSecret.getText(),

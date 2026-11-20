@@ -11,15 +11,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 import static org.openstreetmap.josm.tools.I18n.tr;
 
+import java.awt.GraphicsEnvironment;
 import java.lang.reflect.Field;
 import java.net.Authenticator;
+import java.net.URI;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JTextField;
 
@@ -27,6 +31,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.openstreetmap.josm.TestUtils;
 import org.openstreetmap.josm.data.oauth.OAuth20Exception;
 import org.openstreetmap.josm.data.oauth.OAuth20Parameters;
 import org.openstreetmap.josm.data.oauth.OAuth20Token;
@@ -43,6 +48,9 @@ import org.openstreetmap.josm.io.auth.CredentialsAgentException;
 import org.openstreetmap.josm.io.auth.CredentialsManager;
 import org.openstreetmap.josm.spi.preferences.Config;
 import org.openstreetmap.josm.testutils.annotations.BasicPreferences;
+import org.openstreetmap.josm.testutils.mockers.JOptionPaneSimpleMocker;
+import org.openstreetmap.josm.testutils.mockers.WindowMocker;
+import org.openstreetmap.josm.tools.HttpClient;
 import org.openstreetmap.josm.tools.ReflectionUtils;
 
 /**
@@ -217,6 +225,120 @@ class OAuthAuthenticationPreferencesPanelTest {
         }
         waitForWorkerAndEdt();
         assertFalse(authorize.isEnabled(), "the lookup made with the default settings overrode a later change");
+    }
+
+    /**
+     * A pasted access token works with nothing else: here for a server JOSM has no client id for, with no client id
+     * entered and no network. It is taken over when the preferences are saved, not before, so that cancelling them
+     * leaves the token as it was.
+     * @throws Exception if a field cannot be accessed, waiting for the worker fails or the request cannot be signed
+     */
+    @Test
+    void testPastedTokenWorksWithNothingElse() throws Exception {
+        NetworkManager.setOffline(OnlineResource.ALL);
+        final String apiUrl = "https://nonprod-mapops.example.org/api";
+        Config.getPref().put("osm-server.url", apiUrl);
+        try {
+            final OAuthAuthenticationPreferencesPanel panel = new OAuthAuthenticationPreferencesPanel(OAuthVersion.OAuth20);
+            panel.initFromPreferences();
+            waitForWorkerAndEdt();
+            final AdvancedOAuthPropertiesPanel advanced = getAdvancedProperties(panel);
+            assertEquals("", advanced.getEnteredClientId());
+
+            final JTextField tfAccessToken = (JTextField) getAdvancedField(advanced, "tfAccessToken");
+            assertTrue(advanced.isUseDefaultSettings());
+            assertTrue(tfAccessToken.isEnabled(), "a token can be pasted while the default settings are used");
+            tfAccessToken.setText(" a-pasted-token\n");
+            tfAccessToken.postActionEvent();
+            assertNull(OAuthAccessTokenHolder.getInstance().getAccessToken(apiUrl, OAuthVersion.OAuth20),
+                    "taken over before the preferences were saved, so cancelling them would not undo it");
+            panel.saveToPreferences();
+
+            final OAuth20Token token = (OAuth20Token) getAuthorization(OAuthVersion.OAuth20);
+            assertNotNull(token, "the token was not saved");
+            assertEquals("a-pasted-token", token.getBearerToken());
+            final HttpClient request = HttpClient.create(URI.create(apiUrl + "/0.6/changeset/create").toURL(), "PUT");
+            token.sign(request);
+            assertEquals("Bearer a-pasted-token", request.getRequestHeader("Authorization"));
+        } finally {
+            CredentialsManager.getInstance().storeOAuthAccessToken(OsmApi.getOsmApi().getHost(), null);
+            Config.getPref().removeSensitive("oauth.access-token.parameters.OAuth20." + OsmApi.getOsmApi().getHost());
+            Config.getPref().put("osm-server.url", null);
+        }
+    }
+
+    /**
+     * A token which the user did not change is kept as it is, rather than replaced by a token built from its text:
+     * that would lose everything else the token holds, such as its parameters.
+     * @throws CredentialsAgentException if the token cannot be stored
+     * @throws OAuth20Exception if the token cannot be built
+     * @throws ExecutionException if waiting for the worker fails
+     * @throws InterruptedException if waiting for the worker is interrupted
+     * @throws ReflectiveOperationException if a field cannot be accessed
+     */
+    @Test
+    void testUnchangedTokenIsKept() throws CredentialsAgentException, OAuth20Exception, ExecutionException, InterruptedException,
+            ReflectiveOperationException {
+        NetworkManager.setOffline(OnlineResource.ALL);
+        addAuthorization(OAuthVersion.OAuth20);
+        final OAuthAuthenticationPreferencesPanel panel = new OAuthAuthenticationPreferencesPanel(OAuthVersion.OAuth20);
+        panel.initFromPreferences();
+        waitForWorkerAndEdt();
+        assertEquals("fake_token", getAdvancedProperties(panel).getAccessToken());
+        panel.saveToPreferences();
+
+        final OAuth20Token token = (OAuth20Token) getAuthorization(OAuthVersion.OAuth20);
+        assertEquals("fake_token", token.getBearerToken());
+        assertEquals("fake_id", token.getParameters().getClientId());
+    }
+
+    /**
+     * Clearing the access token removes it, like the "Remove token" button does.
+     * @throws CredentialsAgentException if the token cannot be stored
+     * @throws OAuth20Exception if the token cannot be built
+     * @throws ExecutionException if waiting for the worker fails
+     * @throws InterruptedException if waiting for the worker is interrupted
+     * @throws ReflectiveOperationException if a field cannot be accessed
+     */
+    @Test
+    void testClearedTokenIsRemoved() throws CredentialsAgentException, OAuth20Exception, ExecutionException, InterruptedException,
+            ReflectiveOperationException {
+        NetworkManager.setOffline(OnlineResource.ALL);
+        addAuthorization(OAuthVersion.OAuth20);
+        final OAuthAuthenticationPreferencesPanel panel = new OAuthAuthenticationPreferencesPanel(OAuthVersion.OAuth20);
+        panel.initFromPreferences();
+        waitForWorkerAndEdt();
+        getAdvancedProperties(panel).setAccessToken("");
+        assertNotNull(OAuthAccessTokenHolder.getInstance().getAccessToken(OsmApi.getOsmApi().getServerUrl(), OAuthVersion.OAuth20),
+                "removed before the preferences were saved, so cancelling them would not undo it");
+        panel.saveToPreferences();
+        assertNull(getAuthorization(OAuthVersion.OAuth20));
+    }
+
+    /**
+     * "Test Access Token" tests the token in the field: with the field cleared there is none to test, rather than
+     * the stored token, which the user is about to remove.
+     * @throws Exception if a field cannot be accessed, the token cannot be stored or waiting for the worker fails
+     */
+    @Test
+    void testNothingToTestWhenTheTokenIsCleared() throws Exception {
+        TestUtils.assumeWorkingJMockit();
+        if (GraphicsEnvironment.isHeadless()) {
+            new WindowMocker();
+        }
+        final JOptionPaneSimpleMocker mocker = new JOptionPaneSimpleMocker(Collections.singletonMap(
+                "There is no Access Token to test.", JOptionPane.OK_OPTION));
+        NetworkManager.setOffline(OnlineResource.ALL);
+        addAuthorization(OAuthVersion.OAuth20);
+        final OAuthAuthenticationPreferencesPanel panel = new OAuthAuthenticationPreferencesPanel(OAuthVersion.OAuth20);
+        panel.initFromPreferences();
+        waitForWorkerAndEdt();
+        getAdvancedProperties(panel).setAccessToken("");
+        final JButton test = (JButton) getAlreadyAuthorisedButtons(panel).getComponent(1);
+        assertEquals(tr("Test Access Token"), test.getText());
+
+        test.doClick();
+        assertEquals(1, mocker.getInvocationLog().size(), "the stored token was tested instead");
     }
 
     private static AdvancedOAuthPropertiesPanel getAdvancedProperties(OAuthAuthenticationPreferencesPanel panel)

@@ -122,6 +122,20 @@ class OsmConnectionTest {
     }
 
     /**
+     * A token pasted by the user signs the connection with nothing else: no client id, no endpoints, no network.
+     * @throws Exception if the connection cannot be signed
+     */
+    @Test
+    void testPastedTokenSignsTheConnection() throws Exception {
+        OAuthAccessTokenHolder.getInstance().setAccessToken(API_URL,
+                OAuth20Token.fromAccessToken(new OAuth20Parameters("", null, "", "", API_URL, ""), "a-pasted-token"));
+
+        final HttpClient client = apiRequest();
+        new TestConnection().addOAuth20AuthorizationHeader(client);
+        assertEquals("Bearer a-pasted-token", client.getRequestHeader("Authorization"));
+    }
+
+    /**
      * An existing token is used without the parameters having to be stored, since the token carries its own.
      * @throws OAuth20Exception if the token cannot be built
      * @throws Exception if the connection cannot be signed

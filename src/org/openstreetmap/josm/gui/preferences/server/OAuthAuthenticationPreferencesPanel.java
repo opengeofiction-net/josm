@@ -24,6 +24,7 @@ import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JLabel;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 
 import org.openstreetmap.josm.actions.ExpertToggleAction;
@@ -142,6 +143,7 @@ public class OAuthAuthenticationPreferencesPanel extends JPanel implements Prope
 
     protected void refreshView() {
         pnlAuthorisationMessage.removeAll();
+        pnlAdvancedProperties.setAccessToken(getBearerToken());
         if (OAuthAccessTokenHolder.getInstance().getAccessToken(this.apiUrl, this.oAuthVersion) != null) {
             pnlAuthorisationMessage.add(pnlAlreadyAuthorised, BorderLayout.CENTER);
             pnlAlreadyAuthorised.refreshView();
@@ -151,6 +153,49 @@ public class OAuthAuthenticationPreferencesPanel extends JPanel implements Prope
             pnlNotYetAuthorised.revalidate();
         }
         repaint();
+    }
+
+    /**
+     * Get the bearer token JOSM currently has for the API.
+     * @return the bearer token, or {@code null} if there is none
+     */
+    private String getBearerToken() {
+        if (apiUrl == null) {
+            return null;
+        }
+        final IOAuthToken token = OAuthAccessTokenHolder.getInstance().getAccessToken(apiUrl, oAuthVersion);
+        return token instanceof OAuth20Token ? ((OAuth20Token) token).getBearerToken() : null;
+    }
+
+    /**
+     * Determines whether the user changed the access token in the advanced OAuth parameters.
+     * @return {@code true} if the access token entered differs from the one JOSM has
+     */
+    private boolean isAccessTokenEdited() {
+        final String current = getBearerToken();
+        return apiUrl != null && !pnlAdvancedProperties.getAccessToken().equals(current == null ? "" : current);
+    }
+
+    /**
+     * Get the access token entered in the advanced OAuth parameters: a token issued outside JOSM, pasted instead of
+     * authorizing JOSM. It works with nothing else, so it is a way to authenticate when authorizing JOSM is not
+     * possible.
+     * @return the token, or {@code null} if none is entered
+     */
+    private IOAuthToken getEnteredAccessToken() {
+        final String entered = pnlAdvancedProperties.getAccessToken();
+        return entered.isEmpty() ? null : OAuth20Token.fromAccessToken(pnlAdvancedProperties.getDisplayedParameters(), entered);
+    }
+
+    /**
+     * Takes over the access token entered in the advanced OAuth parameters, or removes the token if the field was
+     * cleared. This is done when the preferences are saved, so that cancelling them leaves the token as it was. A
+     * token which was not changed is left as it is, so that for example its refresh token is kept.
+     */
+    private void applyEnteredAccessToken() {
+        if (isAccessTokenEdited()) {
+            OAuthAccessTokenHolder.getInstance().setAccessToken(apiUrl, getEnteredAccessToken());
+        }
     }
 
     /**
@@ -177,6 +222,7 @@ public class OAuthAuthenticationPreferencesPanel extends JPanel implements Prope
      * Saves the current values to preferences
      */
     public void saveToPreferences() {
+        applyEnteredAccessToken();
         OAuthAccessTokenHolder.getInstance().setSaveToPreferences(cbSaveToPreferences.isSelected());
         OAuthAccessTokenHolder.getInstance().save(CredentialsManager.getInstance());
         OsmApi.USE_OAUTH_FOR_ALL_REQUESTS.put(cbUseForAllRequests.isSelected());
@@ -419,7 +465,14 @@ public class OAuthAuthenticationPreferencesPanel extends JPanel implements Prope
 
         @Override
         public void actionPerformed(ActionEvent evt) {
-            IOAuthToken token = OAuthAccessTokenHolder.getInstance().getAccessToken(apiUrl, oAuthVersion);
+            // a token pasted but not saved yet is what the user wants to know about, and none if the field was cleared
+            final IOAuthToken token = isAccessTokenEdited() ? getEnteredAccessToken()
+                    : OAuthAccessTokenHolder.getInstance().getAccessToken(apiUrl, oAuthVersion);
+            if (token == null) {
+                JOptionPane.showMessageDialog(OAuthAuthenticationPreferencesPanel.this,
+                        tr("There is no Access Token to test."), tr("Test Access Token"), JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
             TestAccessTokenTask task = new TestAccessTokenTask(
                     OAuthAuthenticationPreferencesPanel.this,
                     apiUrl,
@@ -433,6 +486,7 @@ public class OAuthAuthenticationPreferencesPanel extends JPanel implements Prope
     public void propertyChange(PropertyChangeEvent evt) {
         if (AdvancedOAuthPropertiesPanel.PARAMETERS_CHANGED_PROP.equals(evt.getPropertyName())) {
             updateAuthoriseNowActions();
+
         } else if (OsmApiUrlInputPanel.API_URL_PROP.equals(evt.getPropertyName())) {
             setApiUrl((String) evt.getNewValue());
             refreshView();

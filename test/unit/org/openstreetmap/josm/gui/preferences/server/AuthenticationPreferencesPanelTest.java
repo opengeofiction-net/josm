@@ -2,6 +2,7 @@
 package org.openstreetmap.josm.gui.preferences.server;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.reflect.Field;
@@ -12,8 +13,12 @@ import javax.swing.JRadioButton;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.openstreetmap.josm.actions.ExpertToggleAction;
+import org.openstreetmap.josm.data.oauth.OAuthAccessTokenHolder;
+import org.openstreetmap.josm.data.oauth.OAuthVersion;
+import org.openstreetmap.josm.gui.oauth.AdvancedOAuthPropertiesPanel;
 import org.openstreetmap.josm.io.NetworkManager;
 import org.openstreetmap.josm.io.OnlineResource;
+import org.openstreetmap.josm.io.OsmApi;
 import org.openstreetmap.josm.spi.preferences.Config;
 import org.openstreetmap.josm.testutils.annotations.BasicPreferences;
 import org.openstreetmap.josm.tools.ReflectionUtils;
@@ -26,6 +31,7 @@ class AuthenticationPreferencesPanelTest {
 
     @AfterEach
     void tearDown() {
+        OAuthAccessTokenHolder.getInstance().clear();
         ExpertToggleAction.getInstance().setExpert(false);
         NetworkManager.setOnline(OnlineResource.ALL);
         Config.getPref().put("osm-server.auth-method", null);
@@ -88,6 +94,29 @@ class AuthenticationPreferencesPanelTest {
         }
         Config.getPref().put("osm-server.url", "https://nonprod-mapops.example.org/api");
         assertTrue(((JRadioButton) getField(createPanel("oauth20"), "rbBasicAuthentication")).isEnabled());
+    }
+
+    /**
+     * Choosing the authentication method does not save what was entered in the OAuth preferences: only OK does.
+     * <p>
+     * Non-regression test: selecting OAuth 2.0 saved the OAuth preferences, and so an Access Token pasted but not
+     * confirmed with OK.
+     * @throws ReflectiveOperationException if a field cannot be accessed
+     */
+    @Test
+    void testChoosingTheMethodDoesNotSaveTheToken() throws ReflectiveOperationException {
+        final AuthenticationPreferencesPanel panel = createPanel("oauth20");
+        final Object oauth = getField(panel, "pnlOAuth20Preferences");
+        final Field pnlAdvancedProperties = OAuthAuthenticationPreferencesPanel.class.getDeclaredField("pnlAdvancedProperties");
+        ReflectionUtils.setObjectsAccessible(pnlAdvancedProperties);
+        ((AdvancedOAuthPropertiesPanel) pnlAdvancedProperties.get(oauth)).setAccessToken("a-pasted-token");
+
+        ((JRadioButton) getField(panel, "rbBasicAuthentication")).setSelected(true);
+        ((JRadioButton) getField(panel, "rbOAuth20")).setSelected(true);
+
+        assertNull(Config.getPref().get("oauth.access-token.object.OAuth20." + OsmApi.getOsmApi().getHost(), null),
+                "the token was saved without OK");
+        assertNull(OAuthAccessTokenHolder.getInstance().getAccessToken(OsmApi.getOsmApi().getServerUrl(), OAuthVersion.OAuth20));
     }
 
     /**

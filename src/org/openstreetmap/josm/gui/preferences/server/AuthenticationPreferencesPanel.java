@@ -186,7 +186,7 @@ public class AuthenticationPreferencesPanel extends VerticallyScrollablePanel im
                 pnlBasicAuthPreferences.revalidate();
             } else if (rbOAuth20.isSelected()) {
                 pnlAuthenticationParameters.add(pnlOAuth20Preferences, BorderLayout.CENTER);
-                pnlOAuth20Preferences.saveToPreferences();
+                // only refresh it: saving here would save what was entered before the user pressed OK
                 pnlOAuth20Preferences.initFromPreferences();
                 pnlOAuth20Preferences.revalidate();
             }
