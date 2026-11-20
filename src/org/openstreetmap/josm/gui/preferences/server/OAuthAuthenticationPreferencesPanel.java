@@ -51,9 +51,8 @@ import org.openstreetmap.josm.tools.UserCancelException;
 import org.openstreetmap.josm.tools.Utils;
 
 /**
- * The preferences panel for the OAuth 1.0a preferences. This just a summary panel
- * showing the current Access Token Key and Access Token Secret, if the
- * user already has an Access Token.
+ * The preferences panel for OAuth 2.0. This is just a summary panel
+ * showing the current Access Token, if the user already has one.
  * <br>
  * For initial authorisation see {@link OAuthAuthorizationWizard}.
  * @since 2745
@@ -118,7 +117,7 @@ public class OAuthAuthenticationPreferencesPanel extends JPanel implements Prope
      * advanced OAuth parameters changed.
      */
     private void updateAuthoriseNowActions() {
-        for (JPanel panel : Arrays.asList(this.pnlNotYetAuthorised, (JPanel) this.pnlAlreadyAuthorised.getComponent(6))) {
+        for (JPanel panel : Arrays.asList(this.pnlNotYetAuthorised, this.pnlAlreadyAuthorised.pnlButtons)) {
             for (Component component : panel.getComponents()) {
                 if (component instanceof JButton && ((JButton) component).getAction() instanceof AuthoriseNowAction) {
                     ((AuthoriseNowAction) ((JButton) component).getAction()).updateEnabledState();
@@ -224,6 +223,7 @@ public class OAuthAuthenticationPreferencesPanel extends JPanel implements Prope
      */
     private class AlreadyAuthorisedPanel extends JPanel {
         private final JosmTextField tfAccessTokenKey = new JosmTextField(null, null, 0, false);
+        private final JPanel pnlButtons = new JPanel(new FlowLayout(FlowLayout.LEFT));
 
         /**
          * Constructs a new {@code AlreadyAuthorisedPanel}.
@@ -250,22 +250,15 @@ public class OAuthAuthenticationPreferencesPanel extends JPanel implements Prope
             gc.gridx = 0;
             gc.gridwidth = 1;
             gc.weightx = 0.0;
-            add(new JLabel(tr("Access Token Key:")), gc);
+            add(new JLabel(tr("Access Token:")), gc);
 
             gc.gridx = 1;
             gc.weightx = 1.0;
             add(tfAccessTokenKey, gc);
             tfAccessTokenKey.setEditable(false);
 
-            // -- access token secret
+            // -- save to preferences
             gc.gridy = 2;
-            gc.gridx = 0;
-            gc.gridwidth = 1;
-            gc.weightx = 0.0;
-            add(new JLabel(tr("Access Token Secret:")), gc);
-
-            // -- access token secret
-            gc.gridy = 3;
             gc.gridx = 0;
             gc.gridwidth = 2;
             gc.weightx = 1.0;
@@ -273,18 +266,17 @@ public class OAuthAuthenticationPreferencesPanel extends JPanel implements Prope
             cbSaveToPreferences.setSelected(OAuthAccessTokenHolder.getInstance().isSaveToPreferences());
 
             // -- action buttons
-            JPanel btns = new JPanel(new FlowLayout(FlowLayout.LEFT));
-            btns.add(new JButton(new RenewAuthorisationAction(AuthorizationProcedure.FULLY_AUTOMATIC)));
-            btns.add(new JButton(new TestAuthorisationAction()));
-            btns.add(new JButton(new RemoveAuthorisationAction()));
-            gc.gridy = 4;
+            pnlButtons.add(new JButton(new RenewAuthorisationAction(AuthorizationProcedure.FULLY_AUTOMATIC)));
+            pnlButtons.add(new JButton(new TestAuthorisationAction()));
+            pnlButtons.add(new JButton(new RemoveAuthorisationAction()));
+            gc.gridy = 3;
             gc.gridx = 0;
             gc.gridwidth = 2;
             gc.weightx = 1.0;
-            add(btns, gc);
+            add(pnlButtons, gc);
 
             // filler - grab the remaining space
-            gc.gridy = 6;
+            gc.gridy = 4;
             gc.fill = GridBagConstraints.BOTH;
             gc.weightx = 1.0;
             gc.weighty = 1.0;

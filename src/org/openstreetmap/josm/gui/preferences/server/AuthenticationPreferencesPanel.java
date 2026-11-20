@@ -132,7 +132,7 @@ public class AuthenticationPreferencesPanel extends VerticallyScrollablePanel im
         } else if (rbOAuth20.isSelected()) {
             authMethod = "oauth20";
         } else {
-            throw new IllegalStateException("One of OAuth 2.0, OAuth 1.0a, or Basic authentication must be checked");
+            throw new IllegalStateException("One of OAuth 2.0 or Basic authentication must be checked");
         }
         final boolean initUser = Config.getPref().put("osm-server.auth-method", authMethod);
         if ("basic".equals(authMethod)) {

@@ -3,12 +3,9 @@ package org.openstreetmap.josm.io;
 
 import static org.openstreetmap.josm.tools.I18n.tr;
 
-import java.lang.reflect.InvocationTargetException;
 import java.net.Authenticator.RequestorType;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -31,7 +28,6 @@ import org.openstreetmap.josm.io.auth.CredentialsAgentResponse;
 import org.openstreetmap.josm.io.auth.CredentialsManager;
 import org.openstreetmap.josm.io.remotecontrol.RemoteControl;
 import org.openstreetmap.josm.tools.HttpClient;
-import org.openstreetmap.josm.tools.JosmRuntimeException;
 import org.openstreetmap.josm.tools.Logging;
 import org.openstreetmap.josm.tools.Utils;
 
@@ -48,34 +44,6 @@ public class OsmConnection {
     protected boolean cancel;
     protected HttpClient activeConnection;
     protected IOAuthParameters oAuth20Parameters;
-
-    /**
-     * Retrieves OAuth access token.
-     * @since 12803
-     */
-    @FunctionalInterface
-    public interface OAuthAccessTokenFetcher {
-        /**
-         * Obtains an OAuth access token for the connection. Afterwards, the token is accessible via {@link OAuthAccessTokenHolder}.
-         * @param serverUrl the URL to OSM server
-         * @throws InterruptedException if we're interrupted while waiting for the event dispatching thread to finish OAuth authorization task
-         * @throws InvocationTargetException if an exception is thrown while running OAuth authorization task
-         */
-        void obtainAccessToken(URL serverUrl) throws InvocationTargetException, InterruptedException;
-    }
-
-    static volatile OAuthAccessTokenFetcher fetcher = u -> {
-        throw new JosmRuntimeException("OsmConnection.setOAuthAccessTokenFetcher() has not been called");
-    };
-
-    /**
-     * Sets the OAuth access token fetcher.
-     * @param tokenFetcher new OAuth access token fetcher. Cannot be null
-     * @since 12803
-     */
-    public static void setOAuthAccessTokenFetcher(OAuthAccessTokenFetcher tokenFetcher) {
-        fetcher = Objects.requireNonNull(tokenFetcher, "tokenFetcher");
-    }
 
     /**
      * Cancels the connection.

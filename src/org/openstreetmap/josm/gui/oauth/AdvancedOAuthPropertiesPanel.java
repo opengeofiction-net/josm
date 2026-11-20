@@ -36,13 +36,11 @@ import org.openstreetmap.josm.tools.ImageProvider;
 /**
  * Panel allowing the user to setup advanced OAuth parameters:
  * <ul>
- * <li>Consumer key</li>
- * <li>Consumer secret</li>
- * <li>Request token URL</li>
+ * <li>Client ID</li>
+ * <li>Client secret</li>
+ * <li>Redirect URI</li>
  * <li>Access token URL</li>
  * <li>Authorize URL</li>
- * <li>OSM login URL</li>
- * <li>OSM logout URL</li>
  * </ul>
  *
  * @see OAuthParameters
@@ -57,9 +55,9 @@ public class AdvancedOAuthPropertiesPanel extends VerticallyScrollablePanel {
     public static final String PARAMETERS_CHANGED_PROP = AdvancedOAuthPropertiesPanel.class.getName() + ".parametersChanged";
 
     private final JCheckBox cbUseDefaults = new JCheckBox(tr("Use default settings"));
-    private final JosmTextField tfConsumerKey = new JosmTextField();
-    private final JosmTextField tfConsumerSecret = new JosmTextField();
-    private final JosmTextField tfRequestTokenURL = new JosmTextField();
+    private final JosmTextField tfClientId = new JosmTextField();
+    private final JosmTextField tfClientSecret = new JosmTextField();
+    private final JosmTextField tfRedirectUri = new JosmTextField();
     private final JosmTextField tfAccessTokenURL = new JosmTextField();
     private final JosmTextField tfAuthoriseURL = new JosmTextField();
     private final OAuthVersion oauthVersion;
@@ -87,7 +85,7 @@ public class AdvancedOAuthPropertiesPanel extends VerticallyScrollablePanel {
         gc.gridwidth = 3;
         add(cbUseDefaults, gc);
 
-        // -- consumer key
+        // -- client id
         gc.gridy = 1;
         gc.weightx = 0.0;
         gc.gridwidth = 1;
@@ -95,10 +93,10 @@ public class AdvancedOAuthPropertiesPanel extends VerticallyScrollablePanel {
 
         gc.gridx = 1;
         gc.weightx = 1.0;
-        add(tfConsumerKey, gc);
-        SelectAllOnFocusGainedDecorator.decorate(tfConsumerKey);
+        add(tfClientId, gc);
+        SelectAllOnFocusGainedDecorator.decorate(tfClientId);
 
-        // -- consumer secret
+        // -- client secret
         gc.gridy++;
         gc.gridx = 0;
         gc.weightx = 0.0;
@@ -106,10 +104,10 @@ public class AdvancedOAuthPropertiesPanel extends VerticallyScrollablePanel {
 
         gc.gridx = 1;
         gc.weightx = 1.0;
-        add(tfConsumerSecret, gc);
-        SelectAllOnFocusGainedDecorator.decorate(tfConsumerSecret);
+        add(tfClientSecret, gc);
+        SelectAllOnFocusGainedDecorator.decorate(tfClientSecret);
 
-        // -- request token URL
+        // -- redirect URI
         gc.gridy++;
         gc.gridx = 0;
         gc.weightx = 0.0;
@@ -117,8 +115,8 @@ public class AdvancedOAuthPropertiesPanel extends VerticallyScrollablePanel {
 
         gc.gridx = 1;
         gc.weightx = 1.0;
-        add(tfRequestTokenURL, gc);
-        SelectAllOnFocusGainedDecorator.decorate(tfRequestTokenURL);
+        add(tfRedirectUri, gc);
+        SelectAllOnFocusGainedDecorator.decorate(tfRedirectUri);
 
         // -- access token URL
         gc.gridy++;
@@ -146,7 +144,7 @@ public class AdvancedOAuthPropertiesPanel extends VerticallyScrollablePanel {
         cbUseDefaults.addItemListener(ilUseDefault);
         cbUseDefaults.setSelected(Config.getPref().getBoolean("oauth.settings.use-default", true));
         cbUseDefaults.addItemListener(e -> fireParametersChanged());
-        tfConsumerKey.getDocument().addDocumentListener(new DocumentListener() {
+        tfClientId.getDocument().addDocumentListener(new DocumentListener() {
             @Override
             public void insertUpdate(DocumentEvent e) {
                 fireParametersChanged();
@@ -184,7 +182,7 @@ public class AdvancedOAuthPropertiesPanel extends VerticallyScrollablePanel {
      * @since 19627
      */
     public String getEnteredClientId() {
-        return tfConsumerKey.getText();
+        return tfClientId.getText();
     }
 
     protected boolean hasCustomSettings() {
@@ -230,11 +228,11 @@ public class AdvancedOAuthPropertiesPanel extends VerticallyScrollablePanel {
                         case OAuth20:
                         case OAuth21:
                             OAuth20Parameters params20 = (OAuth20Parameters) iParams;
-                            tfConsumerKey.setText(params20.getClientId());
-                            tfConsumerSecret.setText(params20.getClientSecret());
+                            tfClientId.setText(params20.getClientId());
+                            tfClientSecret.setText(params20.getClientSecret());
                             tfAccessTokenURL.setText(params20.getAccessTokenUrl());
                             tfAuthoriseURL.setText(params20.getAuthorizationUrl());
-                            tfRequestTokenURL.setText(params20.getRedirectUri());
+                            tfRedirectUri.setText(params20.getRedirectUri());
                             break;
                         default:
                             throw new UnsupportedOperationException("Unsupported OAuth version: " + this.oauthVersion);
@@ -260,12 +258,12 @@ public class AdvancedOAuthPropertiesPanel extends VerticallyScrollablePanel {
         if (cbUseDefaults.isSelected())
             return OAuthParameters.createDefault(apiUrl, this.oauthVersion);
         return new OAuth20Parameters(
-                tfConsumerKey.getText(),
-                tfConsumerSecret.getText(),
+                tfClientId.getText(),
+                tfClientSecret.getText(),
                 tfAccessTokenURL.getText(),
                 tfAuthoriseURL.getText(),
                 apiUrl,
-                tfRequestTokenURL.getText()
+                tfRedirectUri.getText()
                 );
     }
 
@@ -285,11 +283,11 @@ public class AdvancedOAuthPropertiesPanel extends VerticallyScrollablePanel {
             setChildComponentsEnabled(true);
             if (parameters instanceof OAuth20Parameters) {
                 OAuth20Parameters parameters20 = (OAuth20Parameters) parameters;
-                tfConsumerKey.setText(parameters20.getClientId());
-                tfConsumerSecret.setText(parameters20.getClientSecret());
+                tfClientId.setText(parameters20.getClientId());
+                tfClientSecret.setText(parameters20.getClientSecret());
                 tfAccessTokenURL.setText(parameters20.getAccessTokenUrl());
                 tfAuthoriseURL.setText(parameters20.getAuthorizationUrl());
-                tfRequestTokenURL.setText(parameters20.getRedirectUri());
+                tfRedirectUri.setText(parameters20.getRedirectUri());
             }
         }
     }

@@ -15,14 +15,6 @@ public enum AuthorizationProcedure {
     FULLY_AUTOMATIC,
 
     /**
-     * Run a semi-automatic procedure to get an access token from the OSM website.
-     * JOSM submits the standards OAuth requests to get a Request Token and an
-     * Access Token. It dispatches the user to the OSM website in an external browser
-     * to authenticate itself and to accept the request token submitted by JOSM.
-     */
-    SEMI_AUTOMATIC,
-
-    /**
      * Enter an Access Token manually. The Access Token could have been generated
      * by another JOSM user and sent to the current JOSM user via email, i.e. in order
      * to grant the current OSM user the right download its private GPS traces. Or it could
@@ -38,8 +30,6 @@ public enum AuthorizationProcedure {
         switch (this) {
         case FULLY_AUTOMATIC:
             return tr("Fully automatic");
-        case SEMI_AUTOMATIC:
-            return tr("Semi-automatic");
         case MANUALLY:
             return tr("Manual");
         }
@@ -57,13 +47,6 @@ public enum AuthorizationProcedure {
                     "<html>Run a fully automatic procedure to get an access token from the OSM website.<br>"
                     + "JOSM accesses the OSM website on behalf of the JOSM user and fully<br>"
                     + "automatically authorizes the user and retrieves an Access Token.</html>"
-            );
-        case SEMI_AUTOMATIC:
-            return tr(
-                    "<html>Run a semi-automatic procedure to get an access token from the OSM website.<br>"
-                    + "JOSM submits the standards OAuth requests to get a Request Token and an<br>"
-                    + "Access Token. It dispatches the user to the OSM website in an external browser<br>"
-                    + "to authenticate itself and to accept the request token submitted by JOSM.</html>"
             );
         case MANUALLY:
             return tr(
