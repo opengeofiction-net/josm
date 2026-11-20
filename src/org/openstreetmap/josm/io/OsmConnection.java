@@ -147,9 +147,7 @@ public class OsmConnection {
                     done.countDown();
                 };
         new OAuth20Authorization().authorize(oAuth20Parameters,
-                consumer, OsmScopes.read_gpx, OsmScopes.write_gpx,
-                OsmScopes.read_prefs, OsmScopes.write_prefs,
-                OsmScopes.write_api, OsmScopes.write_notes);
+                consumer, OsmScopes.getJosmScopes());
         // Only wait at most 5 minutes
         int counter = 0;
         while (done.getCount() >= 0 && counter < 5) {

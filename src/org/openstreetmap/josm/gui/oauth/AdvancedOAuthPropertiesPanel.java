@@ -10,9 +10,12 @@ import java.awt.Insets;
 import java.awt.event.ItemEvent;
 import java.awt.event.ItemListener;
 import java.util.Objects;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import javax.swing.BorderFactory;
 import javax.swing.JCheckBox;
+import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.event.DocumentEvent;
@@ -22,6 +25,7 @@ import org.openstreetmap.josm.data.oauth.IOAuthParameters;
 import org.openstreetmap.josm.data.oauth.OAuth20Parameters;
 import org.openstreetmap.josm.data.oauth.OAuthParameters;
 import org.openstreetmap.josm.data.oauth.OAuthVersion;
+import org.openstreetmap.josm.data.oauth.osm.OsmScopes;
 import org.openstreetmap.josm.gui.HelpAwareOptionPane;
 import org.openstreetmap.josm.gui.HelpAwareOptionPane.ButtonSpec;
 import org.openstreetmap.josm.gui.MainApplication;
@@ -92,7 +96,7 @@ public class AdvancedOAuthPropertiesPanel extends VerticallyScrollablePanel {
         gc.gridy = 1;
         gc.weightx = 0.0;
         gc.gridwidth = 1;
-        add(new JLabel(tr("Client ID:")), gc);
+        add(label(tr("Client ID:"), tfClientId), gc);
 
         gc.gridx = 1;
         gc.weightx = 1.0;
@@ -103,7 +107,7 @@ public class AdvancedOAuthPropertiesPanel extends VerticallyScrollablePanel {
         gc.gridy++;
         gc.gridx = 0;
         gc.weightx = 0.0;
-        add(new JLabel(tr("Client Secret:")), gc);
+        add(label(tr("Client Secret:"), tfClientSecret), gc);
 
         gc.gridx = 1;
         gc.weightx = 1.0;
@@ -114,7 +118,7 @@ public class AdvancedOAuthPropertiesPanel extends VerticallyScrollablePanel {
         gc.gridy++;
         gc.gridx = 0;
         gc.weightx = 0.0;
-        add(new JLabel(tr("Redirect URL:")), gc);
+        add(label(tr("Redirect URL:"), tfRedirectUri), gc);
 
         gc.gridx = 1;
         gc.weightx = 1.0;
@@ -125,7 +129,7 @@ public class AdvancedOAuthPropertiesPanel extends VerticallyScrollablePanel {
         gc.gridy++;
         gc.gridx = 0;
         gc.weightx = 0.0;
-        add(new JLabel(tr("Access Token URL:")), gc);
+        add(label(tr("Access Token URL:"), tfAccessTokenURL), gc);
 
         gc.gridx = 1;
         gc.weightx = 1.0;
@@ -136,7 +140,7 @@ public class AdvancedOAuthPropertiesPanel extends VerticallyScrollablePanel {
         gc.gridy++;
         gc.gridx = 0;
         gc.weightx = 0.0;
-        add(new JLabel(tr("Authorize URL:")), gc);
+        add(label(tr("Authorize URL:"), tfAuthoriseURL), gc);
 
         gc.gridx = 1;
         gc.weightx = 1.0;
@@ -147,12 +151,15 @@ public class AdvancedOAuthPropertiesPanel extends VerticallyScrollablePanel {
         gc.gridy++;
         gc.gridx = 0;
         gc.weightx = 0.0;
+        lblAccessToken.setLabelFor(tfAccessToken);
         add(lblAccessToken, gc);
 
         gc.gridx = 1;
         gc.weightx = 1.0;
         add(tfAccessToken, gc);
         SelectAllOnFocusGainedDecorator.decorate(tfAccessToken);
+
+        setToolTips();
 
         ilUseDefault = new UseDefaultItemListener();
         cbUseDefaults.addItemListener(ilUseDefault);
@@ -175,6 +182,48 @@ public class AdvancedOAuthPropertiesPanel extends VerticallyScrollablePanel {
                 fireParametersChanged();
             }
         });
+    }
+
+    /**
+     * Creates the label of a field, which has the tool tip of the field.
+     * @param text the text of the label
+     * @param field the field
+     * @return the label
+     */
+    private static JLabel label(String text, JosmTextField field) {
+        final JLabel label = new JLabel(text);
+        label.setLabelFor(field);
+        return label;
+    }
+
+    /**
+     * Explains each field, for the fields and their labels.
+     */
+    private void setToolTips() {
+        final String scopes = Stream.of(OsmScopes.getJosmScopes()).map(Enum::name).collect(Collectors.joining(", "));
+        cbUseDefaults.setToolTipText(tr("<html>Use the OAuth settings JOSM has built in for this server, or which the server publishes.<br>"
+                + "Untick to enter the settings of an OAuth 2.0 application you registered on the server yourself.</html>"));
+        tfClientId.setToolTipText(tr("<html>The Client ID of an OAuth 2.0 application registered on this server.<br>"
+                + "On an openstreetmap-website server, register one under My Settings &gt; OAuth 2 applications,<br>"
+                + "with the redirect URL below and the permissions {0}.</html>", scopes));
+        tfClientSecret.setToolTipText(tr("<html>Only needed if the application is registered as confidential.<br>"
+                + "The applications JOSM has built in are public clients and have none.</html>"));
+        tfRedirectUri.setToolTipText(tr("<html>Must be exactly the redirect URL registered with the application.<br>"
+                + "JOSM receives the authorization at {0}, by remote control.</html>", "http://127.0.0.1:8111/oauth_authorization"));
+        tfAccessTokenURL.setToolTipText(tr("<html>Where JOSM gets the Access Token from.<br>"
+                + "Taken from the OAuth metadata of the server if it publishes any; on an openstreetmap-website server,<br>"
+                + "this is the address of the website followed by {0}, not the API URL.</html>", "/oauth2/token"));
+        tfAuthoriseURL.setToolTipText(tr("<html>Where the web browser is sent to authorize JOSM.<br>"
+                + "Taken from the OAuth metadata of the server if it publishes any; on an openstreetmap-website server,<br>"
+                + "this is the address of the website followed by {0}, not the API URL.</html>", "/oauth2/authorize"));
+        tfAccessToken.setToolTipText(tr("<html>The Access Token JOSM uses for this server.<br>"
+                + "A token issued outside JOSM can be pasted here instead of authorizing JOSM; it needs the permissions {0}.</html>",
+                scopes));
+        for (Component c : getComponents()) {
+            if (c instanceof JLabel && ((JLabel) c).getLabelFor() instanceof JComponent) {
+                ((JLabel) c).setToolTipText(((JComponent) ((JLabel) c).getLabelFor()).getToolTipText());
+            }
+        }
     }
 
     private void fireParametersChanged() {

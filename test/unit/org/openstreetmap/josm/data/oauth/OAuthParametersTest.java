@@ -161,6 +161,23 @@ class OAuthParametersTest {
     }
 
     /**
+     * When the server does not publish its OAuth metadata, the endpoints are those of openstreetmap-website, on the
+     * website rather than below the API URL: {@code <api url>/authorize} is wrong for every OSM API server.
+     */
+    @Test
+    void testEndpointsWithoutDiscovery() {
+        NetworkManager.setOffline(OnlineResource.ALL);
+        final IOAuthParameters thirdParty = OAuthParameters.createDefault(THIRD_PARTY, OAuthVersion.OAuth20);
+        assertEquals("https://nonprod-mapops.example.org/oauth2/authorize", thirdParty.getAuthorizationUrl());
+        assertEquals("https://nonprod-mapops.example.org/oauth2/token", thirdParty.getAccessTokenUrl());
+        assertEquals(THIRD_PARTY, thirdParty.getApiUrl());
+        // the default API is served from a host of its own
+        final IOAuthParameters osm = OAuthParameters.createDefault("https://api.openstreetmap.org/api", OAuthVersion.OAuth20);
+        assertEquals("https://www.openstreetmap.org/oauth2/authorize", osm.getAuthorizationUrl());
+        assertEquals("https://www.openstreetmap.org/oauth2/token", osm.getAccessTokenUrl());
+    }
+
+    /**
      * Unit test of method {@link OAuthParameters#createDefault}.
      */
     @Test

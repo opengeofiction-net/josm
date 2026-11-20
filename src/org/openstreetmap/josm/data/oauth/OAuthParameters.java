@@ -210,7 +210,6 @@ public final class OAuthParameters {
         final String clientId;
         final String clientSecret;
         final String redirectUri = "http://127.0.0.1:8111/oauth_authorization";
-        final String baseUrl;
         apiUrl = OsmApi.normalizeApiUrl(apiUrl == null ? OsmApi.getOsmApi().getServerUrl() : apiUrl);
         switch (apiUrl) {
             case OSM_API_DEV:
@@ -244,7 +243,6 @@ public final class OAuthParameters {
                 clientId = "";
                 clientSecret = null;
         }
-        baseUrl = apiUrl;
         // Check if the server is RFC 8414 compliant
         try {
             synchronized (RFC8414_RESPONSES) {
@@ -271,8 +269,21 @@ public final class OAuthParameters {
         } catch (OAuthException e) {
             Logging.trace(e);
         }
-        // Fall back to guessing the parameters.
-        return new OAuth20Parameters(clientId, clientSecret, baseUrl, apiUrl, redirectUri);
+        // Fall back to the endpoints of openstreetmap-website, which is what OSM API servers run
+        return new OAuth20Parameters(clientId, clientSecret, getWebsite(apiUrl) + "/oauth2", apiUrl, redirectUri);
+    }
+
+    /**
+     * Get the website of an OSM API server, where openstreetmap-website has its OAuth 2.0 endpoints: the API URL
+     * without its {@code /api}, except for the default OSM API, which is served from a host of its own.
+     * @param apiUrl The normalized API URL
+     * @return The website URL
+     */
+    private static String getWebsite(String apiUrl) {
+        if (OSM_API_DEFAULT.equals(apiUrl)) {
+            return Config.getUrls().getOSMWebsite();
+        }
+        return apiUrl.replaceAll("/api$", "");
     }
 
     /**

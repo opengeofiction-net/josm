@@ -379,9 +379,7 @@ public class OAuthAuthenticationPreferencesPanel extends JPanel implements Prope
                     }
                     refreshView();
                 });
-            }, OsmScopes.read_gpx, OsmScopes.write_gpx,
-                    OsmScopes.read_prefs, OsmScopes.write_prefs,
-                    OsmScopes.write_api, OsmScopes.write_notes);
+            }, OsmScopes.getJosmScopes());
         }
     }
 

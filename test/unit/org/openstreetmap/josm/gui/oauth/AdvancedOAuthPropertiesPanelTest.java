@@ -1,15 +1,19 @@
 // License: GPL. For details, see LICENSE file.
 package org.openstreetmap.josm.gui.oauth;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.awt.Component;
 import java.lang.reflect.Field;
 import java.util.concurrent.ExecutionException;
 
 import javax.swing.JCheckBox;
 import javax.swing.JComponent;
+import javax.swing.JLabel;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -17,8 +21,10 @@ import org.junit.jupiter.api.Test;
 import org.openstreetmap.josm.data.oauth.OAuth20Parameters;
 import org.openstreetmap.josm.data.oauth.OAuthParameters;
 import org.openstreetmap.josm.data.oauth.OAuthVersion;
+import org.openstreetmap.josm.data.oauth.osm.OsmScopes;
 import org.openstreetmap.josm.gui.MainApplication;
 import org.openstreetmap.josm.gui.util.GuiHelper;
+import org.openstreetmap.josm.gui.widgets.JosmTextField;
 import org.openstreetmap.josm.io.NetworkManager;
 import org.openstreetmap.josm.io.OnlineResource;
 import org.openstreetmap.josm.spi.preferences.Config;
@@ -116,6 +122,33 @@ class AdvancedOAuthPropertiesPanelTest {
         final AdvancedOAuthPropertiesPanel entered = new AdvancedOAuthPropertiesPanel(OAuthVersion.OAuth20);
         entered.initialize(THIRD_PARTY);
         assertTrue(((JComponent) getField(entered, "tfClientId")).isVisible(), "the parameters are entered for this server");
+    }
+
+    /**
+     * Each field explains what it holds, and so does its label; the client id and the access token list the
+     * permissions JOSM needs, which the application has to be registered with.
+     */
+    @Test
+    void testToolTips() {
+        final AdvancedOAuthPropertiesPanel panel = new AdvancedOAuthPropertiesPanel(OAuthVersion.OAuth20);
+        int labels = 0;
+        for (Component c : panel.getComponents()) {
+            if (c instanceof JosmTextField || c instanceof JCheckBox) {
+                assertNotNull(((JComponent) c).getToolTipText(), c::toString);
+            } else if (c instanceof JLabel) {
+                final JComponent field = (JComponent) ((JLabel) c).getLabelFor();
+                assertNotNull(field, ((JLabel) c)::getText);
+                assertEquals(field.getToolTipText(), ((JLabel) c).getToolTipText());
+                labels++;
+            }
+        }
+        assertEquals(6, labels);
+        for (String name : new String[] {"tfClientId", "tfAccessToken"}) {
+            final String toolTip = assertDoesNotThrow(() -> getField(panel, name)).getToolTipText();
+            for (OsmScopes scope : OsmScopes.getJosmScopes()) {
+                assertTrue(toolTip.contains(scope.name()), () -> name + " does not list " + scope + ": " + toolTip);
+            }
+        }
     }
 
     private static JComponent getField(AdvancedOAuthPropertiesPanel panel, String name) throws ReflectiveOperationException {
