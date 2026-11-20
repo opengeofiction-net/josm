@@ -6,6 +6,7 @@ import static org.openstreetmap.josm.tools.I18n.tr;
 import java.net.Authenticator.RequestorType;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -117,11 +118,8 @@ public class OsmConnection {
     private void obtainOAuth20Token() throws MissingOAuthAccessTokenException {
         if (Utils.isEmpty(this.oAuth20Parameters.getClientId())) {
             // Without a client id the authorization request is rejected by the server with "Missing required
-            // parameter: client_id", so do not send the user to the browser at all. The message of the exception
-            // is for the log only; what the user is shown already points at the preferences, which is where the
-            // client id of an OAuth application registered on this server has to be entered.
-            throw new MissingOAuthAccessTokenException(
-                    "No OAuth client id for " + OsmApi.getOsmApi().getServerUrl() + ", cannot request a token");
+            // parameter: client_id", so do not send the user to the browser at all, but tell them what is missing.
+            throw MissingOAuthAccessTokenException.clientIdMissing(OsmApi.getOsmApi().getServerUrl());
         }
         if (!Boolean.TRUE.equals(GuiHelper.runInEDTAndWaitAndReturn(() ->
                 ConditionalOptionPaneUtil.showConfirmationDialog("oauth.oauth20.obtain.automatically",
@@ -148,20 +146,16 @@ public class OsmConnection {
                 };
         new OAuth20Authorization().authorize(oAuth20Parameters,
                 consumer, OsmScopes.getJosmScopes());
-        // Only wait at most 5 minutes
-        int counter = 0;
-        while (done.getCount() >= 0 && counter < 5) {
-            try {
-                if (done.await(1, TimeUnit.MINUTES)) {
-                    break;
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                Logging.trace(e);
-                consumer.accept(null);
-                throw new MissingOAuthAccessTokenException(e);
+        // Only wait at most 5 minutes for the user to authorize JOSM in the web browser
+        try {
+            if (!done.await(5, TimeUnit.MINUTES)) {
+                Logging.warn("No OAuth access token received from {0} within 5 minutes", OsmApi.getOsmApi().getServerUrl());
             }
-            counter++;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            Logging.trace(e);
+            consumer.accept(Optional.empty());
+            throw new MissingOAuthAccessTokenException(e);
         }
     }
 
@@ -181,11 +175,12 @@ public class OsmConnection {
         }
         OAuthAccessTokenHolder holder = OAuthAccessTokenHolder.getInstance();
         IOAuthToken token = holder.getAccessToken(connection.getURL().toExternalForm(), OAuthVersion.OAuth20);
-        if (token == null) {
+        // A token is obtained for the API, and so is only found for requests to the host of the API
+        if (token == null && Objects.equals(connection.getURL().getHost(), OsmApi.getOsmApi().getHost())) {
             obtainOAuth20Token();
             token = holder.getAccessToken(connection.getURL().toExternalForm(), OAuthVersion.OAuth20);
         }
-        if (token == null) { // check if wizard completed
+        if (token == null) { // check if authorization completed
             throw new MissingOAuthAccessTokenException();
         }
         try {
