@@ -17,6 +17,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
@@ -36,6 +38,7 @@ import org.openstreetmap.josm.data.cache.ICachedLoaderListener;
 import org.openstreetmap.josm.data.cache.JCSCachedTileLoaderJob;
 import org.openstreetmap.josm.data.imagery.vectortile.VectorTile;
 import org.openstreetmap.josm.data.imagery.vectortile.mapbox.MVTFile;
+import org.openstreetmap.josm.data.preferences.IntegerProperty;
 import org.openstreetmap.josm.data.preferences.LongProperty;
 import org.openstreetmap.josm.tools.HttpClient;
 import org.openstreetmap.josm.tools.Logging;
@@ -52,6 +55,17 @@ public class TMSCachedTileLoaderJob extends JCSCachedTileLoaderJob<String, Buffe
     public static final LongProperty MAXIMUM_EXPIRES = new LongProperty("imagery.generic.maximum_expires", TimeUnit.DAYS.toMillis(30));
     /** General minimum expires for tiles. Might be overridden by imagery settings */
     public static final LongProperty MINIMUM_EXPIRES = new LongProperty("imagery.generic.minimum_expires", TimeUnit.HOURS.toMillis(1));
+    /**
+     * Number of times a tile is downloaded again after a transient error (5xx response or read timeout)
+     * @since xxx
+     */
+    public static final IntegerProperty TRANSIENT_ERROR_RETRIES = new IntegerProperty("imagery.generic.transient_error_retries", 3);
+    /**
+     * Delay in milliseconds before the first retry after a transient error, doubled for each further retry
+     * @since xxx
+     */
+    public static final LongProperty TRANSIENT_ERROR_RETRY_DELAY = new LongProperty("imagery.generic.transient_error_retry_delay",
+            TimeUnit.SECONDS.toMillis(2));
     static final Pattern SERVICE_EXCEPTION_PATTERN = Pattern.compile("(?s).+<ServiceException[^>]*>(.+)</ServiceException>.+");
     static final Pattern CDATA_PATTERN = Pattern.compile("(?s)\\s*<!\\[CDATA\\[(.+)\\]\\]>\\s*");
     static final Pattern JSON_PATTERN = Pattern.compile("\\{\"message\":\"(.+)\"\\}");
@@ -62,6 +76,14 @@ public class TMSCachedTileLoaderJob extends JCSCachedTileLoaderJob<String, Buffe
     // we need another deduplication of Tile Loader listeners, as for each submit, new TMSCachedTileLoaderJob was created
     // that way, we reduce calls to tileLoadingFinished, and general CPU load due to surplus Map repaints
     private static final ConcurrentMap<String, Set<TileLoaderListener>> inProgress = new ConcurrentHashMap<>();
+
+    // retries made so far for tiles which failed with a transient error, by cache key
+    private static final ConcurrentMap<String, Integer> retries = new ConcurrentHashMap<>();
+    private static final ScheduledExecutorService retryScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread thread = new Thread(r, "TMS-retry");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     /**
      * Constructor for creating a job, to get a specific tile from cache
@@ -173,6 +195,9 @@ public class TMSCachedTileLoaderJob extends JCSCachedTileLoaderJob<String, Buffe
 
     @Override
     public void submit(boolean force) {
+        if (force) {
+            retries.remove(getCacheKey());
+        }
         tile.initLoading();
         try {
             super.submit(this, force);
@@ -206,13 +231,16 @@ public class TMSCachedTileLoaderJob extends JCSCachedTileLoaderJob<String, Buffe
                     int httpStatusCode = attributes.getResponseCode();
                     if (httpStatusCode >= 400 && !isNoTileAtZoom()) {
                         status = false;
-                        handleError(attributes);
+                        handleError(attributes, listeners);
                     }
                 }
                 status &= tryLoadTileImage(object); //try to keep returned image as background
+                if (status) {
+                    retries.remove(getCacheKey());
+                }
                 break;
             case FAILURE:
-                handleError(attributes);
+                handleError(attributes, listeners);
                 tryLoadTileImage(object);
                 break;
             case CANCELED:
@@ -240,7 +268,7 @@ public class TMSCachedTileLoaderJob extends JCSCachedTileLoaderJob<String, Buffe
         }
     }
 
-    private void handleError(CacheEntryAttributes attributes) {
+    private void handleError(CacheEntryAttributes attributes, Set<TileLoaderListener> listeners) {
         if (tile.hasError() && tile.getErrorMessage() != null) {
             // tile has already set error message, don't overwrite it
             return;
@@ -252,18 +280,46 @@ public class TMSCachedTileLoaderJob extends JCSCachedTileLoaderJob<String, Buffe
             } else {
                 tile.setError(tr("Error downloading tiles: {0}", attributes.getErrorMessage()));
             }
-            if (httpStatusCode >= 500 && httpStatusCode != 599) {
-                // httpStatusCode = 599 is set by JCSCachedTileLoaderJob on IOException
-                tile.setLoaded(false); // treat 500 errors as temporary and try to load it again
+            // treat 500 errors and SocketTimeoutException as temporary and try to load the tile again
+            // httpStatusCode = 599 is set by JCSCachedTileLoaderJob on IOException
+            if ((httpStatusCode >= 500 && httpStatusCode != 599)
+                    || attributes.getException().filter(x -> x.isAssignableFrom(SocketTimeoutException.class)).isPresent()) {
+                scheduleRetry(listeners);
             }
-            // treat SocketTimeoutException as transient error
-            attributes.getException()
-            .filter(x -> x.isAssignableFrom(SocketTimeoutException.class))
-            .ifPresent(x -> tile.setLoaded(false));
         } else {
             tile.setError(tr("Problem loading tile"));
             // treat unknown errors as permanent and do not try to load tile again
         }
+    }
+
+    /**
+     * Lets the tile be downloaded again after a transient error, a limited number of times and with a growing delay.
+     * <p>
+     * The tile stays loaded with its error until then, so that the layer shows the error and doesn't download it again
+     * at the next repaint. When the delay has passed, the tile is marked as not loaded and the listeners are notified,
+     * so that the layer repaints and downloads it again if it's still visible (see #25133).
+     * @param listeners the listeners notified about this download, may be {@code null}
+     */
+    private void scheduleRetry(Set<TileLoaderListener> listeners) {
+        String key = getCacheKey();
+        int retry = retries.merge(key, 1, Integer::sum);
+        if (retry > TRANSIENT_ERROR_RETRIES.get()) {
+            // give up, the tile keeps its error until it is reloaded
+            retries.remove(key);
+            Logging.debug("JCS TMS - giving up on tile {0} after {1} retries", tile.getKey(), retry - 1);
+            return;
+        }
+        long delay = TRANSIENT_ERROR_RETRY_DELAY.get() << (retry - 1);
+        retryScheduler.schedule(() -> {
+            if (tile.hasError() && !tile.isLoading()) {
+                tile.setLoaded(false);
+                if (listeners != null) {
+                    for (TileLoaderListener l: listeners) {
+                        l.tileLoadingFinished(tile, false);
+                    }
+                }
+            }
+        }, delay, TimeUnit.MILLISECONDS);
     }
 
     /**

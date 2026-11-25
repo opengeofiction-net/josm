@@ -3,6 +3,7 @@ package org.openstreetmap.josm.data.imagery;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -106,12 +107,26 @@ class TMSCachedTileLoaderJobTest {
     private static final class Listener implements TileLoaderListener {
         private CacheEntryAttributes attributes;
         private boolean ready;
+        private int notifications;
         private byte[] data;
 
         @Override
         public synchronized void tileLoadingFinished(Tile tile, boolean success) {
             ready = true;
+            notifications++;
             this.notifyAll();
+        }
+
+        synchronized boolean waitForNotifications(int count, long timeoutMillis) throws InterruptedException {
+            long end = System.currentTimeMillis() + timeoutMillis;
+            while (notifications < count) {
+                long remaining = end - System.currentTimeMillis();
+                if (remaining <= 0) {
+                    return false;
+                }
+                wait(remaining);
+            }
+            return true;
         }
     }
 
@@ -371,5 +386,44 @@ class TMSCachedTileLoaderJobTest {
         assertTrue(job.getAttributes().isNoTileAtZoom(), "the no-tile marker was dropped");
         assertEquals("no-tile", tile.getValue("tile-info"));
         assertNotSame(Tile.LOADING_IMAGE, tile.getImage(), "the tile still shows the hourglass");
+    }
+
+    /**
+     * A 5xx response is a transient error: the tile is downloaded again, but only after a delay and a limited number of times.
+     * Until then, the tile stays loaded with its error, so the layer neither shows nothing nor downloads it again at once.
+     * Non-regression test for #25133.
+     * @throws Exception exception
+     */
+    @Test
+    void testTransientErrorRetriedWithDelay() throws Exception {
+        TMSCachedTileLoaderJob.TRANSIENT_ERROR_RETRY_DELAY.put(50L);
+        final int retries = TMSCachedTileLoaderJob.TRANSIENT_ERROR_RETRIES.get();
+        wireMockRuntimeInfo.getWireMock().register(
+                WireMock.get(WireMock.urlEqualTo("/error"))
+                .willReturn(WireMock.serverError())
+                );
+        MockTile tile = new MockTile(wireMockRuntimeInfo.getHttpBaseUrl() + "/error");
+
+        for (int attempt = 0; attempt <= retries; attempt++) {
+            // as the layer does at a repaint, download the tile when it is not loaded
+            assertFalse(tile.isLoaded() || tile.isLoading(), "the tile isn't due for a download");
+            Listener listener = new Listener();
+            new TestCachedTileLoaderJob(listener, tile, "error").submit(false);
+            assertTrue(listener.waitForNotifications(1, 10_000), "the download didn't finish");
+
+            wireMockRuntimeInfo.getWireMock().verifyThat(attempt + 1, WireMock.getRequestedFor(WireMock.urlEqualTo("/error")));
+            assertTrue(tile.hasError(), "the tile doesn't show the error");
+            assertTrue(tile.isLoaded(), "the tile would be downloaded again at once");
+
+            if (attempt < retries) {
+                // after the delay, the tile is due for a download again
+                assertTrue(listener.waitForNotifications(2, 10_000), "the tile wasn't retried");
+                assertFalse(tile.isLoaded(), "the tile wasn't retried");
+            } else {
+                // no more retries
+                assertFalse(listener.waitForNotifications(2, 50L << retries), "the tile was retried too often");
+                assertTrue(tile.isLoaded(), "the tile was retried too often");
+            }
+        }
     }
 }
