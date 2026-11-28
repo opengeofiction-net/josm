@@ -8,7 +8,6 @@ import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.file.Files;
-import java.security.SecureRandom;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -383,50 +382,43 @@ public abstract class JCSCachedTileLoaderJob<K, V extends CacheEntry> implements
 
             attributes = parseHeaders(urlConn);
 
-            for (int i = 0; i < 5; ++i) {
-                if (urlConn.getResponseCode() == HttpURLConnection.HTTP_UNAVAILABLE) {
-                    Thread.sleep(5000L+new SecureRandom().nextInt(5000));
-                    continue;
+            attributes.setResponseCode(urlConn.getResponseCode());
+            byte[] raw;
+            if (urlConn.getResponseCode() == HttpURLConnection.HTTP_OK) {
+                try (InputStream is = urlConn.getContent()) {
+                    raw = is.readAllBytes();
                 }
-
-                attributes.setResponseCode(urlConn.getResponseCode());
-                byte[] raw;
-                if (urlConn.getResponseCode() == HttpURLConnection.HTTP_OK) {
-                    try (InputStream is = urlConn.getContent()) {
-                        raw = is.readAllBytes();
-                    }
-                } else {
-                    raw = new byte[]{};
-                    try {
-                        String data = urlConn.fetchContent();
-                        if (!data.isEmpty()) {
-                            String detectErrorMessage = detectErrorMessage(data);
-                            if (detectErrorMessage != null) {
-                                attributes.setErrorMessage(detectErrorMessage);
-                            }
+            } else {
+                raw = new byte[]{};
+                try {
+                    String data = urlConn.fetchContent();
+                    if (!data.isEmpty()) {
+                        String detectErrorMessage = detectErrorMessage(data);
+                        if (detectErrorMessage != null) {
+                            attributes.setErrorMessage(detectErrorMessage);
                         }
-                    } catch (IOException e) {
-                        Logging.warn(e);
                     }
+                } catch (IOException e) {
+                    Logging.warn(e);
                 }
+            }
 
-                if (isResponseLoadable(urlConn.getHeaderFields(), urlConn.getResponseCode(), raw)) {
-                    // we need to check cacheEmpty, so for cases, when data is returned, but we want to store
-                    // as empty (eg. empty tile images) to save some space
-                    cacheData = createCacheEntry(raw);
-                    cache.put(getCacheKey(), cacheData, attributes);
-                    Logging.debug("JCS - downloaded key: {0}, length: {1}, url: {2}",
-                            getCacheKey(), raw.length, getUrl());
-                    return true;
-                } else if (cacheAsEmpty(urlConn.getHeaderFields(), urlConn.getResponseCode())) {
-                    cacheData = createCacheEntry(new byte[]{});
-                    cache.put(getCacheKey(), cacheData, attributes);
-                    Logging.debug("JCS - Caching empty object {0}", getUrl());
-                    return true;
-                } else {
-                    Logging.debug("JCS - failure during load - response is not loadable nor cached as empty");
-                    return false;
-                }
+            if (isResponseLoadable(urlConn.getHeaderFields(), urlConn.getResponseCode(), raw)) {
+                // we need to check cacheEmpty, so for cases, when data is returned, but we want to store
+                // as empty (eg. empty tile images) to save some space
+                cacheData = createCacheEntry(raw);
+                cache.put(getCacheKey(), cacheData, attributes);
+                Logging.debug("JCS - downloaded key: {0}, length: {1}, url: {2}",
+                        getCacheKey(), raw.length, getUrl());
+                return true;
+            } else if (cacheAsEmpty(urlConn.getHeaderFields(), urlConn.getResponseCode())) {
+                cacheData = createCacheEntry(new byte[]{});
+                cache.put(getCacheKey(), cacheData, attributes);
+                Logging.debug("JCS - Caching empty object {0}", getUrl());
+                return true;
+            } else {
+                Logging.debug("JCS - failure during load - response is not loadable nor cached as empty");
+                return false;
             }
         } catch (FileNotFoundException e) {
             Logging.debug("JCS - Caching empty object as server returned 404 for: {0}", getUrlNoException());
@@ -449,15 +441,7 @@ public abstract class JCSCachedTileLoaderJob<K, V extends CacheEntry> implements
                 attributes.setResponseCode(599); // set dummy error code, greater than 500 so it will be not cached
                 return false;
             }
-
-        } catch (InterruptedException e) {
-            attributes.setError(e);
-            attributes.setException(e);
-            Logging.logWithStackTrace(Logging.LEVEL_WARN, e, "JCS - Exception during download {0}", getUrlNoException());
-            Thread.currentThread().interrupt();
         }
-        Logging.warn("JCS - Silent failure during download: {0}", getUrlNoException());
-        return false;
     }
 
     /**

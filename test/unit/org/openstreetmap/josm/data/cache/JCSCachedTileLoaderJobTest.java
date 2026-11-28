@@ -131,6 +131,8 @@ class JCSCachedTileLoaderJobTest {
         doTestStatusCode(500);
         doTestStatusCode(501);
         doTestStatusCode(502);
+        doTestStatusCode(503);
+        doTestStatusCode(504);
     }
 
     /**
