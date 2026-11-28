@@ -44,6 +44,7 @@ import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
@@ -207,6 +208,9 @@ implements ImageObserver, TileLoaderListener, ZoomChangeListener, FilterChangeLi
     /** A timer that is used to delay invalidation events if required. */
     private final Timer invalidateLaterTimer = new Timer(100, e -> this.invalidate());
 
+    // keys of the tiles which failed to load and have not been loaded successfully since
+    private final Set<String> failedTiles = ConcurrentHashMap.newKeySet();
+
     private final MouseAdapter adapter = new MouseAdapter() {
         @Override
         public void mouseClicked(MouseEvent e) {
@@ -322,6 +326,9 @@ implements ImageObserver, TileLoaderListener, ZoomChangeListener, FilterChangeLi
         if (tile.hasError()) {
             success = false;
             tile.setImage(null);
+            failedTiles.add(tile.getKey());
+        } else if (success) {
+            failedTiles.remove(tile.getKey());
         }
         invalidateLater();
         Logging.debug("tileLoadingFinished() tile: {0} success: {1}", tile, success);
@@ -1200,6 +1207,36 @@ implements ImageObserver, TileLoaderListener, ZoomChangeListener, FilterChangeLi
         }
     }
 
+    /**
+     * Returns the image which shows the state of a tile that failed to load.
+     * <p>
+     * Tiles which never failed get no image, so that the normal loading of tiles shows the imagery of other zoom levels
+     * or layers, as before. Once a tile has failed, it shows the error image while it has its error, and the hourglass
+     * while it is loaded again, until it is loaded successfully (see #25133).
+     * @param tile the tile
+     * @return {@link Tile#ERROR_IMAGE}, {@link Tile#LOADING_IMAGE}, or {@code null} for no image
+     */
+    BufferedImage getTileStatusImage(Tile tile) {
+        if (tile == null || !getDisplaySettings().isShowErrors() || !failedTiles.contains(tile.getKey())) {
+            return null;
+        }
+        if (tile.hasError()) {
+            return Tile.ERROR_IMAGE;
+        }
+        if (tile.isLoading() || !tile.isLoaded()) {
+            return Tile.LOADING_IMAGE;
+        }
+        return null;
+    }
+
+    private void paintTileStatus(Tile tile, Graphics2D g) {
+        BufferedImage statusImage = getTileStatusImage(tile);
+        if (statusImage != null) {
+            Rectangle bounds = coordinateConverter.getTileShapeScreen(tile).getBounds();
+            g.drawImage(statusImage, bounds.x, bounds.y, bounds.width, bounds.height, null);
+        }
+    }
+
     private void paintTileText(Tile tile, Graphics2D g) {
         if (tile == null) {
             return;
@@ -1697,6 +1734,7 @@ implements ImageObserver, TileLoaderListener, ZoomChangeListener, FilterChangeLi
 
         // The current zoom tileset should have all of its tiles due to the loadAllTiles(), unless it to tooLarge()
         for (Tile t : ts.allExistingTiles()) {
+            this.paintTileStatus(t, g);
             this.paintTileText(t, g);
         }
 

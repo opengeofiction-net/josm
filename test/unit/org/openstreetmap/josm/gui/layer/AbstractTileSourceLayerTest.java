@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.Point;
@@ -196,5 +198,39 @@ class AbstractTileSourceLayerTest {
     @Test
     void testTileSourceLayerPopup() {
         assertDoesNotThrow(() -> testLayer.new TileSourceLayerPopup(100, 100));
+    }
+
+    /**
+     * Test {@link AbstractTileSourceLayer#getTileStatusImage}: a tile shows the error image or the hourglass only once
+     * it has failed, until it is loaded successfully. Non-regression test for #25133.
+     */
+    @Test
+    void testTileStatusImage() {
+        Tile tile = new Tile(testLayer.tileSource, 1, 1, 1);
+        tile.initLoading();
+        assertNull(testLayer.getTileStatusImage(tile), "a tile which never failed shows its normal loading");
+
+        tile.finishLoading();
+        tile.setError("HTTP error 503 when loading tiles");
+        testLayer.tileLoadingFinished(tile, false);
+        assertSame(Tile.ERROR_IMAGE, testLayer.getTileStatusImage(tile));
+
+        // the retry after a transient error
+        tile.setLoaded(false);
+        assertSame(Tile.ERROR_IMAGE, testLayer.getTileStatusImage(tile));
+        tile.initLoading();
+        assertSame(Tile.LOADING_IMAGE, testLayer.getTileStatusImage(tile));
+
+        testLayer.getDisplaySettings().setShowErrors(false);
+        assertNull(testLayer.getTileStatusImage(tile), "errors are not shown");
+        testLayer.getDisplaySettings().setShowErrors(true);
+
+        tile.finishLoading();
+        testLayer.tileLoadingFinished(tile, true);
+        assertNull(testLayer.getTileStatusImage(tile), "a tile loaded successfully shows its image");
+
+        // after a success, normal loading is shown again
+        tile.initLoading();
+        assertNull(testLayer.getTileStatusImage(tile));
     }
 }
